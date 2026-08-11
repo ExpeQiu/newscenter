@@ -22,8 +22,17 @@ cp .env.example .env
 | 变量 | 说明 |
 |------|------|
 | `AI_MOCK_MODE=true` | 强制 Mock（默认，verify 必过） |
+| `AI_PROVIDER=minimax` | 且 Mock=false 时走 MiniMax（推荐真服务） |
+| `MINIMAX_API_KEY` / `MINIMAX_BASE_URL` / `MINIMAX_MODEL` | MiniMax 鉴权与模型（默认国内 `api.minimaxi.com` + `MiniMax-M3`） |
 | `AI_PROVIDER=openclaw` | 且 Mock=false 时走本机 Gateway |
 | `OPENCLAW_GATEWAY_URL` / `OPENCLAW_TOKEN` | Gateway 地址与鉴权 |
+
+```bash
+# .env 启用 MiniMax
+AI_MOCK_MODE=false
+AI_PROVIDER=minimax
+MINIMAX_API_KEY=你的密钥
+```
 
 OpenClaw Skills 位于 [`skills/`](skills/)，可软链到 `~/.openclaw/skills/`：
 
@@ -34,14 +43,13 @@ ln -s "$(pwd)/skills/newsc-summarize" ~/.openclaw/skills/newsc-summarize
 
 ## HTML 日报（目录直读）
 
-在 [`digest-sources.yml`](digest-sources.yml) 定义来源目录，Web「日报」页直接读取其中的 HTML（参考 AgentCenter 输出物）：
+在 [`digest-sources.yml`](digest-sources.yml) 定义来源目录，Web「日报」页直接读取其中的 HTML（参考 AgentCenter 输出物）。默认含 `local-demo → daily/`；个人路径写入 `digest-sources.local.yml`（见 example，已 gitignore）。
 
 ```bash
 curl -s http://127.0.0.1:8787/digests/vault/status | python -m json.tool
 ```
 
 可选兼容：`digest-CLI/` 仍可 `newsc-digest push` 写入库，但非主路径；推荐 `newsc vault *` / `newsc-digest vault *`。见 [ADR-005](ADR/005-digest-vault-sources.md)、[ADR-006](ADR/006-unified-newsc-cli.md)。
-
 ## 统一 CLI
 
 ```bash
@@ -54,6 +62,8 @@ newsc sources list
 ```
 
 详见 [ADR-006](ADR/006-unified-newsc-cli.md)、[guide/运维与Cron.md](guide/运维与Cron.md)。
+
+阿里云混合部署（Mac 真源推库 · 端口 8333）：[guide/混合部署与云端运维.md](guide/混合部署与云端运维.md)。
 
 ## 目录
 

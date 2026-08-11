@@ -167,6 +167,18 @@ def vault_file_cmd(ctx: click.Context, source: str, rel_path: str) -> None:
     sys.exit(EXIT_OK)
 
 
+@vault_group.command("ingest")
+@click.pass_context
+def vault_ingest_cmd(ctx: click.Context) -> None:
+    """POST /digests/vault/ingest — 本机目录扫描写入数据库。"""
+    try:
+        data = ctx.obj["client"].vault_ingest()
+    except httpx.HTTPError as exc:
+        _api_exit(exc)
+    _emit(data, ctx.obj["fmt"])
+    sys.exit(EXIT_OK)
+
+
 @main.group("digest")
 def digest_group() -> None:
     """Digest read helpers."""
@@ -227,6 +239,12 @@ def sources_list_cmd(ctx: click.Context) -> None:
 @click.option("--account", default=None, help="For youtube/bilibili")
 @click.option("--handle", default=None, help="For social")
 @click.option("--platform", default="other", help="Social platform")
+@click.option(
+    "--refresh",
+    "refresh_interval",
+    default=None,
+    help="刷新周期：15m|30m|1h|3h|6h|12h|1d|manual",
+)
 @click.option("--disabled", is_flag=True, help="Create as disabled")
 @click.pass_context
 def sources_add_cmd(
@@ -237,6 +255,7 @@ def sources_add_cmd(
     account: str | None,
     handle: str | None,
     platform: str,
+    refresh_interval: str | None,
     disabled: bool,
 ) -> None:
     """POST /sources."""
@@ -257,6 +276,8 @@ def sources_add_cmd(
             sys.exit(EXIT_VALID)
         config["handle"] = handle
         config["platform"] = platform
+    if refresh_interval:
+        config["refresh_interval"] = refresh_interval
     try:
         data = ctx.obj["client"].source_create(
             name=name, type_=stype, config=config, enabled=not disabled
@@ -274,6 +295,12 @@ def sources_add_cmd(
 @click.option("--account", default=None)
 @click.option("--handle", default=None)
 @click.option("--platform", default=None)
+@click.option(
+    "--refresh",
+    "refresh_interval",
+    default=None,
+    help="刷新周期：15m|30m|1h|3h|6h|12h|1d|manual",
+)
 @click.pass_context
 def sources_update_cmd(
     ctx: click.Context,
@@ -283,6 +310,7 @@ def sources_update_cmd(
     account: str | None,
     handle: str | None,
     platform: str | None,
+    refresh_interval: str | None,
 ) -> None:
     """PATCH /sources/{id} (name/config)."""
     config: dict[str, Any] | None = None
@@ -294,6 +322,9 @@ def sources_update_cmd(
         config = {"handle": handle}
         if platform:
             config["platform"] = platform
+    if refresh_interval is not None:
+        config = dict(config or {})
+        config["refresh_interval"] = refresh_interval
     if name is None and config is None:
         console.print("[red]provide --name and/or config flags[/]")
         sys.exit(EXIT_VALID)
@@ -350,6 +381,12 @@ def vault_source_group() -> None:
 @click.option("--id", "source_id", required=True)
 @click.option("--label", required=True)
 @click.option("--path", "src_path", required=True)
+@click.option(
+    "--refresh",
+    "refresh_interval",
+    default=None,
+    help="刷新周期：15m|30m|1h|3h|6h|12h|1d|manual（默认 1d）",
+)
 @click.option("--disabled", is_flag=True)
 @click.pass_context
 def vault_source_add_cmd(
@@ -357,6 +394,7 @@ def vault_source_add_cmd(
     source_id: str,
     label: str,
     src_path: str,
+    refresh_interval: str | None,
     disabled: bool,
 ) -> None:
     try:
@@ -365,6 +403,7 @@ def vault_source_add_cmd(
             label=label,
             path=src_path,
             enabled=not disabled,
+            refresh_interval=refresh_interval,
         )
     except httpx.HTTPError as exc:
         _api_exit(exc)

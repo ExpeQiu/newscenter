@@ -81,7 +81,7 @@ class MockProvider:
         title = ctx.get("title") or ctx.get("item_id") or "当前内容"
         answer = (
             f"（Mock）关于「{title}」：{payload.question}\n"
-            f"建议结合摘要与原文判断；真模式将由 OpenClaw 回答。"
+            f"建议结合摘要与原文判断；真模式将由 MiniMax / OpenClaw 回答。"
         )
         citations = []
         if ctx.get("url"):

@@ -1,4 +1,12 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8787";
+/** 云端设 NEXT_PUBLIC_API_BASE=/api（经 Next rewrite）；本机默认直连 orchestrator */
+function resolveApiBase(): string {
+  const raw = process.env.NEXT_PUBLIC_API_BASE;
+  if (raw === undefined) return "http://127.0.0.1:8787";
+  if (raw === "") return "/api";
+  return raw.replace(/\/$/, "");
+}
+
+const API_BASE = resolveApiBase();
 
 export type Marks = {
   is_read: boolean;
@@ -54,6 +62,8 @@ export type DigestVaultSource = {
   path: string;
   enabled: boolean;
   readable: boolean;
+  refresh_interval?: string;
+  refresh_label?: string;
 };
 
 export type DigestVaultStatus = {
@@ -115,7 +125,14 @@ export const api = {
       highlights: string[];
       source?: string | null;
       run_id?: string | null;
-      vault?: { source?: string; source_label?: string; path?: string; mtime?: string } | null;
+      vault?: {
+        source?: string;
+        source_label?: string;
+        path?: string;
+        mtime?: string;
+        count?: number;
+      } | null;
+      synthesized?: boolean;
       empty: boolean;
     }>("/digests/today"),
   digestVaultStatus: () => req<DigestVaultStatus>("/digests/vault/status"),
@@ -142,9 +159,11 @@ export const api = {
       `/digests/vault/file?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`
     ),
   recommendations: () =>
-    req<{ as_of: string; items: { score: number; reason: string; item: Item }[] }>(
-      "/recommendations"
-    ),
+    req<{
+      as_of: string;
+      items: { score: number; reason: string; item: Item }[];
+      fallback?: boolean;
+    }>("/recommendations"),
   sources: () => req<{ sources: FeedSource[] }>("/sources"),
   createSource: (body: {
     name: string;
@@ -191,6 +210,75 @@ export const api = {
     req("/ai/jobs/process", {
       method: "POST",
       body: JSON.stringify({ limit: 50, include_digest: true }),
+    }),
+  cloudSyncConfig: () =>
+    req<{
+      configured: boolean;
+      config_path: string;
+      deploy_host: string;
+      deploy_dir: string;
+      tunnel_local_port: number;
+      cloud_database_url: string;
+      cloud_database_url_set: boolean;
+      local_database_url: string;
+      tunnel_up: boolean | null;
+      push_schedule_enabled: boolean;
+      push_schedule_mode: "daily" | "interval";
+      push_schedule_times: string[];
+      push_schedule_interval_hours: number;
+      push_schedule_installed: boolean;
+      last_push: {
+        log_path: string;
+        exists: boolean;
+        mtime?: number;
+        tail: string[];
+      };
+    }>("/cloud-sync/config"),
+  saveCloudSyncConfig: (body: {
+    deploy_host: string;
+    deploy_dir: string;
+    tunnel_local_port: number;
+    cloud_database_url: string;
+    local_database_url: string;
+    push_schedule_enabled: boolean;
+    push_schedule_mode: "daily" | "interval";
+    push_schedule_times: string[];
+    push_schedule_interval_hours: number;
+    apply_schedule?: boolean;
+  }) =>
+    req("/cloud-sync/config", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  ensureCloudTunnel: () =>
+    req<{
+      ok: boolean;
+      returncode: number;
+      output: string;
+      tunnel_up: boolean | null;
+    }>("/cloud-sync/tunnel", { method: "POST" }),
+  pushDbToCloud: (dry_run = false) =>
+    req<{
+      ok: boolean;
+      dry_run: boolean;
+      returncode: number;
+      output: string;
+    }>("/cloud-sync/push", {
+      method: "POST",
+      body: JSON.stringify({ dry_run }),
+    }),
+  processItemAi: (itemId: string, force = false) =>
+    req<{
+      provider: string;
+      item_id: string;
+      processed: number;
+      failed: number;
+      summary?: string | null;
+      ai_category?: string | null;
+      item: Item;
+    }>(`/ai/items/${encodeURIComponent(itemId)}/process`, {
+      method: "POST",
+      body: JSON.stringify({ force }),
     }),
   ask: (question: string, item_id?: string) =>
     req<{ answer: string; citations: string[] }>("/ai/ask", {

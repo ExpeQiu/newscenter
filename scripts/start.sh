@@ -42,10 +42,18 @@ WEB_PORT="${WEB_PORT:-3000}"
 if [[ -f pids/orchestrator.pid ]] && kill -0 "$(cat pids/orchestrator.pid)" 2>/dev/null; then
   echo "[start] orchestrator already running pid=$(cat pids/orchestrator.pid)"
 else
-  nohup uvicorn orchestrator.main:app --host "$ORCH_HOST" --port "$ORCH_PORT" \
-    > logs/orchestrator.log 2>&1 &
-  echo $! > pids/orchestrator.pid
-  echo "[start] orchestrator pid=$(cat pids/orchestrator.pid) :$ORCH_PORT"
+  # start_new_session：避免父 shell 退出时带走进程
+  python - <<PY
+import subprocess
+from pathlib import Path
+log = open("logs/orchestrator.log", "ab", buffering=0)
+p = subprocess.Popen(
+    ["uvicorn", "orchestrator.main:app", "--host", "$ORCH_HOST", "--port", "$ORCH_PORT"],
+    stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
+)
+Path("pids/orchestrator.pid").write_text(str(p.pid))
+print(f"[start] orchestrator pid={p.pid} :$ORCH_PORT")
+PY
 fi
 
 # wait health
@@ -74,11 +82,17 @@ if [[ -d apps/web ]]; then
   if [[ -f pids/web.pid ]] && kill -0 "$(cat pids/web.pid)" 2>/dev/null; then
     echo "[start] web already running pid=$(cat pids/web.pid)"
   else
-    cd apps/web
-    nohup npm run dev -- -p "$WEB_PORT" > ../../logs/web.log 2>&1 &
-    echo $! > ../../pids/web.pid
-    cd "$ROOT"
-    echo "[start] web pid=$(cat pids/web.pid) :$WEB_PORT"
+    python - <<PY
+import subprocess
+from pathlib import Path
+log = open("logs/web.log", "ab", buffering=0)
+p = subprocess.Popen(
+    ["npm", "run", "dev", "--", "-p", "$WEB_PORT"],
+    cwd="apps/web", stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
+)
+Path("pids/web.pid").write_text(str(p.pid))
+print(f"[start] web pid={p.pid} :$WEB_PORT")
+PY
   fi
 fi
 

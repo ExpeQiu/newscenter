@@ -10,6 +10,7 @@ from typing import Any
 
 import yaml
 
+from pipeline.refresh_interval import canonicalize_refresh_interval, refresh_interval_label
 from pipeline.settings import ROOT, get_settings
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ class DigestSource:
     label: str
     path: Path
     enabled: bool = True
+    refresh_interval: str = "1d"
 
 
 @dataclass
@@ -67,30 +69,59 @@ def _sources_file() -> Path:
     return ROOT / "digest-sources.yml"
 
 
-def load_sources() -> list[DigestSource]:
-    path = _sources_file()
+def _local_sources_file() -> Path | None:
+    """同目录 digest-sources.local.yml；单测自定义 DIGEST_SOURCES_FILE 时不叠加。"""
+    base = _sources_file()
+    if base.name != "digest-sources.yml":
+        return None
+    return base.with_name("digest-sources.local.yml")
+
+
+def _parse_source_dicts(path: Path) -> list[dict[str, Any]]:
     if not path.is_file():
-        logger.warning("digest_vault sources missing file=%s", path)
         return []
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except Exception as exc:
         logger.exception("digest_vault sources parse failed file=%s", path)
         raise DigestVaultError(f"来源配置无法解析: {exc}", status_code=500) from exc
-
     items = raw.get("sources") if isinstance(raw, dict) else None
     if not isinstance(items, list):
         return []
+    return [i for i in items if isinstance(i, dict)]
 
+
+def _merge_source_dicts(base: list[dict[str, Any]], overlay: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_id: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    deleted: set[str] = set()
+    for item in base + overlay:
+        sid = str(item.get("id") or "").strip()
+        if not sid:
+            continue
+        if item.get("deleted") is True:
+            deleted.add(sid)
+            by_id.pop(sid, None)
+            continue
+        deleted.discard(sid)
+        if sid not in by_id and sid not in order:
+            order.append(sid)
+        by_id[sid] = item
+    return [by_id[sid] for sid in order if sid in by_id and sid not in deleted]
+
+
+def _dicts_to_sources(items: list[dict[str, Any]]) -> list[DigestSource]:
     out: list[DigestSource] = []
     seen: set[str] = set()
     for item in items:
-        if not isinstance(item, dict):
-            continue
         sid = str(item.get("id") or "").strip()
         label = str(item.get("label") or sid).strip()
         path_raw = str(item.get("path") or "").strip().strip('"').strip("'")
         enabled = bool(item.get("enabled", True))
+        refresh = canonicalize_refresh_interval(
+            item.get("refresh_interval"),
+            stype="digest",
+        )
         if not sid or not path_raw or sid in seen:
             continue
         seen.add(sid)
@@ -99,8 +130,39 @@ def load_sources() -> list[DigestSource]:
             p = (ROOT / p).resolve()
         else:
             p = p.resolve()
-        out.append(DigestSource(id=sid, label=label or sid, path=p, enabled=enabled))
-    logger.info("digest_vault load_sources count=%d file=%s", len(out), path)
+        out.append(
+            DigestSource(
+                id=sid,
+                label=label or sid,
+                path=p,
+                enabled=enabled,
+                refresh_interval=refresh,
+            )
+        )
+    return out
+
+
+def load_sources() -> list[DigestSource]:
+    path = _sources_file()
+    if not path.is_file():
+        logger.warning("digest_vault sources missing file=%s", path)
+        base_items: list[dict[str, Any]] = []
+    else:
+        base_items = _parse_source_dicts(path)
+
+    local = _local_sources_file()
+    overlay: list[dict[str, Any]] = []
+    if local and local.is_file():
+        overlay = _parse_source_dicts(local)
+
+    merged = _merge_source_dicts(base_items, overlay)
+    out = _dicts_to_sources(merged)
+    logger.info(
+        "digest_vault load_sources count=%d file=%s local=%s",
+        len(out),
+        path,
+        local if local and local.is_file() else None,
+    )
     return out
 
 
@@ -137,6 +199,8 @@ def vault_status() -> dict[str, Any]:
                 "path": str(src.path),
                 "enabled": src.enabled,
                 "readable": readable,
+                "refresh_interval": src.refresh_interval,
+                "refresh_label": refresh_interval_label(src.refresh_interval),
             }
         )
     any_ok = any(s["readable"] for s in sources)
@@ -291,26 +355,52 @@ def fmt_mtime(ts: float) -> str:
 
 
 def _read_raw_sources() -> list[dict[str, Any]]:
-    path = _sources_file()
-    if not path.is_file():
-        return []
-    try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except Exception as exc:
-        logger.exception("digest_vault sources parse failed file=%s", path)
-        raise DigestVaultError(f"来源配置无法解析: {exc}", status_code=500) from exc
-    items = raw.get("sources") if isinstance(raw, dict) else None
-    if not isinstance(items, list):
-        return []
-    return [i for i in items if isinstance(i, dict)]
+    """合并 base + local，供 upsert 读写；写回目标见 _writable_sources_file。"""
+    base = _parse_source_dicts(_sources_file()) if _sources_file().is_file() else []
+    local = _local_sources_file()
+    overlay = _parse_source_dicts(local) if local and local.is_file() else []
+    return _merge_source_dicts(base, overlay)
+
+
+def _writable_sources_file() -> Path:
+    """单测自定义文件直接写回；默认仓库写 local，避免污染已提交的 demo 配置。"""
+    local = _local_sources_file()
+    if local is not None:
+        return local
+    return _sources_file()
 
 
 def _write_raw_sources(items: list[dict[str, Any]]) -> Path:
-    path = _sources_file()
+    path = _writable_sources_file()
     path.parent.mkdir(parents=True, exist_ok=True)
+    # 默认路径：base 保留 demo，变更写入 local（含删除墓碑）
+    local = _local_sources_file()
+    if local is not None and path == local:
+        base_items = _parse_source_dicts(_sources_file()) if _sources_file().is_file() else []
+        base_by_id = {
+            str(i.get("id") or "").strip(): i
+            for i in base_items
+            if str(i.get("id") or "").strip()
+        }
+        merged_ids = {str(i.get("id") or "").strip() for i in items if str(i.get("id") or "").strip()}
+        to_write: list[dict[str, Any]] = []
+        for item in items:
+            sid = str(item.get("id") or "").strip()
+            if not sid:
+                continue
+            if sid not in base_by_id:
+                to_write.append(item)
+                continue
+            if item != base_by_id.get(sid):
+                to_write.append(item)
+        for sid, base_item in base_by_id.items():
+            if sid not in merged_ids:
+                to_write.append({"id": sid, "deleted": True})
+        items = to_write
+
     payload = {"sources": items}
     text = (
-        "# NewsC 日报来源（参考 AgentCenter 输出物：定义目录 → 只读 HTML）\n"
+        "# NewsC 日报来源（本机覆盖 / 可写配置）\n"
         "# path 可为绝对路径，或相对仓库根目录\n\n"
         + yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
     )
@@ -334,6 +424,7 @@ def upsert_source(
     label: str,
     path: str,
     enabled: bool = True,
+    refresh_interval: str | None = None,
 ) -> dict[str, Any]:
     sid = _validate_source_id(source_id)
     label_s = (label or sid).strip()
@@ -345,15 +436,35 @@ def upsert_source(
 
     items = _read_raw_sources()
     found = False
+    prev_refresh: str | None = None
     for item in items:
         if str(item.get("id") or "").strip() == sid:
+            prev_refresh = str(item.get("refresh_interval") or "") or None
             item["label"] = label_s
             item["path"] = path_raw
             item["enabled"] = bool(enabled)
+            item["refresh_interval"] = canonicalize_refresh_interval(
+                refresh_interval if refresh_interval is not None else prev_refresh,
+                stype="digest",
+                fallback=prev_refresh,
+            )
             found = True
             break
+    refresh = canonicalize_refresh_interval(
+        refresh_interval if refresh_interval is not None else prev_refresh,
+        stype="digest",
+        fallback=prev_refresh,
+    )
     if not found:
-        items.append({"id": sid, "label": label_s, "path": path_raw, "enabled": bool(enabled)})
+        items.append(
+            {
+                "id": sid,
+                "label": label_s,
+                "path": path_raw,
+                "enabled": bool(enabled),
+                "refresh_interval": refresh,
+            }
+        )
 
     cfg = _write_raw_sources(items)
     p = Path(path_raw).expanduser()
@@ -363,10 +474,11 @@ def upsert_source(
         p = p.resolve()
     readable = bool(enabled) and p.is_dir()
     logger.info(
-        "digest_vault upsert id=%s enabled=%s readable=%s file=%s",
+        "digest_vault upsert id=%s enabled=%s readable=%s refresh=%s file=%s",
         sid,
         enabled,
         readable,
+        refresh,
         cfg,
     )
     return {
@@ -375,6 +487,8 @@ def upsert_source(
         "path": str(p),
         "enabled": bool(enabled),
         "readable": readable,
+        "refresh_interval": refresh,
+        "refresh_label": refresh_interval_label(refresh),
     }
 
 
@@ -388,6 +502,7 @@ def set_source_enabled(source_id: str, enabled: bool) -> dict[str, Any]:
                 label=str(item.get("label") or sid),
                 path=str(item.get("path") or ""),
                 enabled=bool(enabled),
+                refresh_interval=str(item.get("refresh_interval") or "") or None,
             )
     raise DigestVaultError(f"未知来源: {sid}", status_code=404)
 

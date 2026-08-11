@@ -6,10 +6,12 @@
 
 ```bash
 newsc --format json pipeline run rss
-newsc --format json pipeline run sources   # 消费启用中的订阅源
+newsc --format json pipeline run sources   # 消费启用中的订阅源（按各源 refresh_interval 跳过未到期）
 newsc --format json ai process --limit 50
 newsc --format json vault status
 ```
+
+订阅源可在 Web「订阅」页或 CLI 设定 `refresh_interval`（`15m`…`1d` / `manual`）。Cron 宜以最短周期触发（如每 15 分钟），管道会按源级周期决定是否真正采集；`manual` 仅在创建/改源时触发重采，定时管道会跳过。
 
 兼容裸 HTTP（调试用）：
 
@@ -24,6 +26,8 @@ curl -s -X POST http://127.0.0.1:8787/ai/jobs/process -H 'Content-Type: applicat
 
 在 `digest-sources.yml` 定义来源目录后，orchestrator 只读其中的 `.html`：
 
+仓库默认含 `local-demo → daily/`（verify 依赖）。本机个人目录写入 `digest-sources.local.yml`（gitignore），按 id 与基线合并。
+
 ```bash
 newsc --format json vault status
 newsc --format json vault files --source local-demo
@@ -34,6 +38,29 @@ Web「日报」页按来源筛选并 iframe 预览。详见 [ADR-005](../ADR/005
 
 可选兼容：旧 CLI 推送仍可用（`newsc-digest push`），但非主路径。Vault 只读：`newsc-digest vault status`。
 
+## 鉴权与 CORS
+
+- 默认 CORS 白名单：`http://127.0.0.1:3000` / `http://localhost:3000`（`ORCH_CORS_ORIGINS`）
+- 设置 `ORCH_API_TOKEN` 后，写接口需 `Authorization: Bearer <token>` 或 `X-API-Token`
+
 ## Verify 契约
 
-`./scripts/verify.sh` 覆盖：factory、hash 去重、ingest、AI mock 写回、digest、vault HTML、ask、`newsc` CLI smoke。
+`./scripts/verify.sh` 覆盖：factory、hash 去重、ingest、AI mock 写回、digest、vault HTML（`local-demo`）、ask、`newsc` CLI smoke。
+
+## 混合部署（阿里云 120）
+
+Mac 真源 + 云只读副本，对外端口 `8333`，共用 `stock-pg` 库 `newsc`。详见 [混合部署与云端运维](./混合部署与云端运维.md)。
+
+### 日报入库（方案 2）
+
+本机扫描 `digest-sources*.yml` 目录，HTML 写入 `digest_vault_sources` / `digest_vault_files`；推库时一并上云。云端目录不可读时自动回退读库。
+
+```bash
+# 仅入库
+python -m pipeline.vault_ingest
+# 或
+newsc vault ingest
+
+# 推云（默认先 ingest 再 pg_dump）
+bash scripts/deploy/push-db-to-cloud.sh
+```

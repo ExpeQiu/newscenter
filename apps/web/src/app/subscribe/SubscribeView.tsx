@@ -8,6 +8,15 @@ import {
   type DigestVaultStatus,
   type FeedSource,
 } from "@/lib/api";
+import {
+  looksLikeAccountUrl,
+  parseSocialLink,
+  parseVideoLink,
+  socialParseHint,
+  videoParseHint,
+  type ParsedSocialLink,
+  type ParsedVideoLink,
+} from "@/lib/parseAccountLink";
 
 const SOCIAL_PLATFORMS = [
   { v: "weibo", l: "微博" },
@@ -15,6 +24,25 @@ const SOCIAL_PLATFORMS = [
   { v: "xiaohongshu", l: "小红书" },
   { v: "other", l: "其他" },
 ];
+
+/** 各渠道刷新周期预设（与后端 pipeline.refresh_interval 对齐） */
+const REFRESH_OPTIONS = [
+  { v: "15m", l: "每 15 分钟" },
+  { v: "30m", l: "每 30 分钟" },
+  { v: "1h", l: "每 1 小时" },
+  { v: "3h", l: "每 3 小时" },
+  { v: "6h", l: "每 6 小时" },
+  { v: "12h", l: "每 12 小时" },
+  { v: "1d", l: "每天" },
+  { v: "manual", l: "仅手动" },
+] as const;
+
+const DEFAULT_REFRESH = {
+  digest: "1d",
+  web: "1h",
+  social: "1h",
+  video: "6h",
+} as const;
 
 const SECTIONS = [
   { id: "sec-digest", label: "日报路径" },
@@ -26,6 +54,10 @@ const SECTIONS = [
 function cfgStr(cfg: Record<string, unknown> | undefined, key: string): string {
   const v = cfg?.[key];
   return typeof v === "string" ? v : v != null ? String(v) : "";
+}
+
+function refreshLabel(v: string): string {
+  return REFRESH_OPTIONS.find((o) => o.v === v)?.l || v || "—";
 }
 
 function platformLabel(v: string): string {
@@ -43,6 +75,33 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 const inputCls =
   "w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]";
+
+function RefreshField({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Field label="更新周期">
+      <select
+        className={inputCls}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+      >
+        {REFRESH_OPTIONS.map((o) => (
+          <option key={o.v} value={o.v}>
+            {o.l}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
 
 function SourceRow({
   title,
@@ -112,6 +171,7 @@ export default function SubscribePage() {
     id: "",
     label: "",
     path: "",
+    refresh_interval: DEFAULT_REFRESH.digest as string,
     editing: false,
   });
   const [webForm, setWebForm] = useState({
@@ -119,19 +179,26 @@ export default function SubscribePage() {
     name: "",
     url: "",
     kind: "web" as "web" | "rss",
+    refresh_interval: DEFAULT_REFRESH.web as string,
   });
   const [socialForm, setSocialForm] = useState({
     id: "" as string | null,
     name: "",
     platform: "weibo",
     handle: "",
+    link: "",
+    refresh_interval: DEFAULT_REFRESH.social as string,
   });
+  const [socialHint, setSocialHint] = useState<string | null>(null);
   const [videoForm, setVideoForm] = useState({
     id: "" as string | null,
     name: "",
     type: "bilibili" as "bilibili" | "youtube",
     account: "",
+    link: "",
+    refresh_interval: DEFAULT_REFRESH.video as string,
   });
+  const [videoHint, setVideoHint] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setErr(null);
@@ -207,7 +274,13 @@ export default function SubscribePage() {
   }
 
   function resetDigestForm() {
-    setDigestForm({ id: "", label: "", path: "", editing: false });
+    setDigestForm({
+      id: "",
+      label: "",
+      path: "",
+      refresh_interval: DEFAULT_REFRESH.digest,
+      editing: false,
+    });
   }
 
   function editVault(s: DigestVaultSource) {
@@ -215,6 +288,7 @@ export default function SubscribePage() {
       id: s.id,
       label: s.label,
       path: s.path,
+      refresh_interval: s.refresh_interval || DEFAULT_REFRESH.digest,
       editing: true,
     });
     document.getElementById("sec-digest")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -226,6 +300,7 @@ export default function SubscribePage() {
       name: s.name,
       url: cfgStr(s.config, "url"),
       kind: s.type === "rss" ? "rss" : "web",
+      refresh_interval: cfgStr(s.config, "refresh_interval") || DEFAULT_REFRESH.web,
     });
     document.getElementById("sec-web")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -236,7 +311,10 @@ export default function SubscribePage() {
       name: s.name,
       platform: cfgStr(s.config, "platform") || "other",
       handle: cfgStr(s.config, "handle"),
+      link: "",
+      refresh_interval: cfgStr(s.config, "refresh_interval") || DEFAULT_REFRESH.social,
     });
+    setSocialHint(null);
     document.getElementById("sec-social")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -246,8 +324,123 @@ export default function SubscribePage() {
       name: s.name,
       type: s.type === "youtube" ? "youtube" : "bilibili",
       account: cfgStr(s.config, "account"),
+      link: "",
+      refresh_interval: cfgStr(s.config, "refresh_interval") || DEFAULT_REFRESH.video,
     });
+    setVideoHint(null);
     document.getElementById("sec-video")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function applySocialParsed(parsed: ParsedSocialLink, linkRaw: string) {
+    const hint = socialParseHint(parsed);
+    console.info("[subscribe] social_link_ok", hint, linkRaw.slice(0, 120));
+    setSocialHint(`已识别：${hint}`);
+    setSocialForm((f) => ({
+      ...f,
+      link: linkRaw,
+      platform: parsed.platform,
+      handle: parsed.handle,
+      name: f.name.trim() ? f.name : parsed.suggestedName,
+    }));
+  }
+
+  function onSocialLinkChange(raw: string) {
+    setSocialForm((f) => ({ ...f, link: raw }));
+    const t = raw.trim();
+    if (!t) {
+      setSocialHint(null);
+      return;
+    }
+    if (!looksLikeAccountUrl(t)) {
+      setSocialHint(null);
+      return;
+    }
+    const parsed = parseSocialLink(t);
+    if (parsed) {
+      applySocialParsed(parsed, t);
+    } else {
+      console.warn("[subscribe] social_link_fail", t.slice(0, 120));
+      setSocialHint("无法识别该链接，请检查是否为主页 URL");
+    }
+  }
+
+  function onSocialHandleChange(raw: string) {
+    if (looksLikeAccountUrl(raw)) {
+      const parsed = parseSocialLink(raw.trim());
+      if (parsed) {
+        applySocialParsed(parsed, raw.trim());
+        return;
+      }
+    }
+    setSocialForm((f) => ({ ...f, handle: raw }));
+  }
+
+  function applyVideoParsed(parsed: ParsedVideoLink, linkRaw: string) {
+    const hint = videoParseHint(parsed);
+    console.info("[subscribe] video_link_ok", hint, linkRaw.slice(0, 120));
+    setVideoHint(`已识别：${hint}`);
+    setVideoForm((f) => ({
+      ...f,
+      link: linkRaw,
+      type: f.id ? f.type : parsed.type,
+      account: parsed.account,
+      name: f.name.trim() ? f.name : parsed.suggestedName,
+    }));
+  }
+
+  function onVideoLinkChange(raw: string) {
+    setVideoForm((f) => ({ ...f, link: raw }));
+    const t = raw.trim();
+    if (!t) {
+      setVideoHint(null);
+      return;
+    }
+    if (!looksLikeAccountUrl(t)) {
+      setVideoHint(null);
+      return;
+    }
+    const parsed = parseVideoLink(t);
+    if (parsed) {
+      applyVideoParsed(parsed, t);
+    } else {
+      console.warn("[subscribe] video_link_fail", t.slice(0, 120));
+      setVideoHint("无法识别该链接，请粘贴空间 / 频道主页 URL");
+    }
+  }
+
+  function onVideoAccountChange(raw: string) {
+    if (looksLikeAccountUrl(raw)) {
+      const parsed = parseVideoLink(raw.trim());
+      if (parsed) {
+        applyVideoParsed(parsed, raw.trim());
+        return;
+      }
+    }
+    setVideoForm((f) => ({ ...f, account: raw }));
+  }
+
+  function resetSocialForm() {
+    setSocialForm({
+      id: null,
+      name: "",
+      platform: "weibo",
+      handle: "",
+      link: "",
+      refresh_interval: DEFAULT_REFRESH.social,
+    });
+    setSocialHint(null);
+  }
+
+  function resetVideoForm() {
+    setVideoForm({
+      id: null,
+      name: "",
+      type: "bilibili",
+      account: "",
+      link: "",
+      refresh_interval: DEFAULT_REFRESH.video,
+    });
+    setVideoHint(null);
   }
 
   function onDigestSubmit(e: FormEvent) {
@@ -261,6 +454,7 @@ export default function SubscribePage() {
         label: digestForm.label.trim() || id,
         path,
         enabled: true,
+        refresh_interval: digestForm.refresh_interval,
       });
       resetDigestForm();
     });
@@ -272,43 +466,94 @@ export default function SubscribePage() {
     const url = webForm.url.trim();
     if (!name || !url) return;
     void run(webForm.id ? "更新网页信源" : "添加网页信源", async () => {
+      const config = { url, refresh_interval: webForm.refresh_interval };
       const result = webForm.id
-        ? await api.updateSource(webForm.id, { name, config: { url } })
-        : await api.createSource({ name, type: webForm.kind, config: { url } });
-      setWebForm({ id: null, name: "", url: "", kind: "web" });
+        ? await api.updateSource(webForm.id, { name, config })
+        : await api.createSource({ name, type: webForm.kind, config });
+      setWebForm({
+        id: null,
+        name: "",
+        url: "",
+        kind: "web",
+        refresh_interval: DEFAULT_REFRESH.web,
+      });
       return result;
     });
   }
 
   function onSocialSubmit(e: FormEvent) {
     e.preventDefault();
-    const name = socialForm.name.trim();
-    const handle = socialForm.handle.trim();
-    if (!name || !handle) return;
+    let platform = socialForm.platform;
+    let handle = socialForm.handle.trim();
+    const link = socialForm.link.trim();
+    if ((!handle || looksLikeAccountUrl(handle)) && link) {
+      const parsed = parseSocialLink(link);
+      if (parsed) {
+        platform = parsed.platform;
+        handle = parsed.handle;
+      }
+    } else if (looksLikeAccountUrl(handle)) {
+      const parsed = parseSocialLink(handle);
+      if (parsed) {
+        platform = parsed.platform;
+        handle = parsed.handle;
+      }
+    }
+    const name = socialForm.name.trim() || handle;
+    if (!name || !handle) {
+      setSocialHint("请粘贴主页链接或填写账号");
+      return;
+    }
     void run(socialForm.id ? "更新社媒账号" : "绑定社媒账号", async () => {
-      const config = { platform: socialForm.platform, handle };
+      const config = {
+        platform,
+        handle,
+        refresh_interval: socialForm.refresh_interval,
+      };
       const result = socialForm.id
         ? await api.updateSource(socialForm.id, { name, config })
         : await api.createSource({ name, type: "social", config });
-      setSocialForm({ id: null, name: "", platform: "weibo", handle: "" });
+      resetSocialForm();
       return result;
     });
   }
 
   function onVideoSubmit(e: FormEvent) {
     e.preventDefault();
-    const name = videoForm.name.trim();
-    const account = videoForm.account.trim();
-    if (!name || !account) return;
+    let type = videoForm.type;
+    let account = videoForm.account.trim();
+    const link = videoForm.link.trim();
+    if ((!account || looksLikeAccountUrl(account)) && link) {
+      const parsed = parseVideoLink(link);
+      if (parsed) {
+        if (!videoForm.id) type = parsed.type;
+        account = parsed.account;
+      }
+    } else if (looksLikeAccountUrl(account)) {
+      const parsed = parseVideoLink(account);
+      if (parsed) {
+        if (!videoForm.id) type = parsed.type;
+        account = parsed.account;
+      }
+    }
+    const name = videoForm.name.trim() || account;
+    if (!name || !account) {
+      setVideoHint("请粘贴空间 / 频道链接或填写账号");
+      return;
+    }
     void run(videoForm.id ? "更新视频账号" : "绑定视频账号", async () => {
+      const config = {
+        account,
+        refresh_interval: videoForm.refresh_interval,
+      };
       const result = videoForm.id
-        ? await api.updateSource(videoForm.id, { name, config: { account } })
+        ? await api.updateSource(videoForm.id, { name, config })
         : await api.createSource({
             name,
-            type: videoForm.type,
-            config: { account },
+            type,
+            config,
           });
-      setVideoForm({ id: null, name: "", type: "bilibili", account: "" });
+      resetVideoForm();
       return result;
     });
   }
@@ -318,7 +563,7 @@ export default function SubscribePage() {
       <header>
         <h1 className="font-[family-name:var(--font-display)] text-3xl">订阅</h1>
         <p className="mt-2 text-sm text-[var(--muted)]">
-          管理信源：日报路径、网页、社媒与 B 站 / YouTube 账号。采集运维仍在{" "}
+          管理信源：日报路径、网页、社媒与 B 站 / YouTube 账号；可为各渠道设定更新周期。采集运维仍在{" "}
           <Link href="/settings" className="text-[var(--accent)] underline-offset-2 hover:underline">
             设置
           </Link>
@@ -360,7 +605,7 @@ export default function SubscribePage() {
             <Link href="/digest" className="text-[var(--accent)] underline-offset-2 hover:underline">
               日报
             </Link>{" "}
-            预览。
+            预览；更新周期用于约定入库 / 巡检节奏。
             {vault?.config_file ? (
               <span className="mt-1 block break-all text-xs">配置：{vault.config_file}</span>
             ) : null}
@@ -371,7 +616,7 @@ export default function SubscribePage() {
             <SourceRow
               key={s.id}
               title={s.label}
-              meta={`${s.id} · ${s.path}${s.readable ? "" : " · 目录不可读"}`}
+              meta={`${s.id} · ${refreshLabel(s.refresh_interval || DEFAULT_REFRESH.digest)} · ${s.path}${s.readable ? "" : " · 目录不可读"}`}
               enabled={s.enabled}
               onEdit={() => editVault(s)}
               onToggle={() =>
@@ -421,6 +666,11 @@ export default function SubscribePage() {
               />
             </Field>
           </div>
+          <RefreshField
+            value={digestForm.refresh_interval}
+            onChange={(v) => setDigestForm((f) => ({ ...f, refresh_interval: v }))}
+            disabled={busy}
+          />
           <div className="flex flex-wrap gap-2 sm:col-span-2">
             <button
               type="submit"
@@ -446,14 +696,16 @@ export default function SubscribePage() {
       <section id="sec-web" className="scroll-mt-6 space-y-4">
         <div>
           <h2 className="font-[family-name:var(--font-display)] text-xl">指定网页</h2>
-          <p className="mt-1 text-sm text-[var(--muted)]">网页 URL 或 RSS Feed，纳入采集清单。</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            网页 URL 或 RSS Feed；更新周期控制定时管道是否采集该源。
+          </p>
         </div>
         <ul className="divide-y divide-[var(--line)] border-y border-[var(--line)]">
           {webSources.map((s) => (
             <SourceRow
               key={s.id}
               title={s.name}
-              meta={`${s.type.toUpperCase()} · ${cfgStr(s.config, "url") || "（未配置 URL）"}`}
+              meta={`${s.type.toUpperCase()} · ${refreshLabel(cfgStr(s.config, "refresh_interval") || DEFAULT_REFRESH.web)} · ${cfgStr(s.config, "url") || "（未配置 URL）"}`}
               enabled={s.enabled}
               onEdit={() => editWeb(s)}
               onToggle={() =>
@@ -507,6 +759,11 @@ export default function SubscribePage() {
               />
             </Field>
           </div>
+          <RefreshField
+            value={webForm.refresh_interval}
+            onChange={(v) => setWebForm((f) => ({ ...f, refresh_interval: v }))}
+            disabled={busy}
+          />
           <div className="flex flex-wrap gap-2 sm:col-span-2">
             <button
               type="submit"
@@ -520,7 +777,15 @@ export default function SubscribePage() {
                 type="button"
                 disabled={busy}
                 className="rounded-md border border-[var(--line)] px-3 py-2 text-sm disabled:opacity-50"
-                onClick={() => setWebForm({ id: null, name: "", url: "", kind: "web" })}
+                onClick={() =>
+                  setWebForm({
+                    id: null,
+                    name: "",
+                    url: "",
+                    kind: "web",
+                    refresh_interval: DEFAULT_REFRESH.web,
+                  })
+                }
               >
                 取消编辑
               </button>
@@ -532,14 +797,16 @@ export default function SubscribePage() {
       <section id="sec-social" className="scroll-mt-6 space-y-4">
         <div>
           <h2 className="font-[family-name:var(--font-display)] text-xl">社媒账号</h2>
-          <p className="mt-1 text-sm text-[var(--muted)]">绑定微博 / X / 小红书等账号标识。</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            粘贴微博 / X / 小红书主页链接自动识别，或手动填写账号标识。
+          </p>
         </div>
         <ul className="divide-y divide-[var(--line)] border-y border-[var(--line)]">
           {socialSources.map((s) => (
             <SourceRow
               key={s.id}
               title={s.name}
-              meta={`${platformLabel(cfgStr(s.config, "platform"))} · @${cfgStr(s.config, "handle") || "—"}`}
+              meta={`${platformLabel(cfgStr(s.config, "platform"))} · ${refreshLabel(cfgStr(s.config, "refresh_interval") || DEFAULT_REFRESH.social)} · @${cfgStr(s.config, "handle") || "—"}`}
               enabled={s.enabled}
               onEdit={() => editSocial(s)}
               onToggle={() =>
@@ -558,13 +825,37 @@ export default function SubscribePage() {
           ) : null}
         </ul>
         <form onSubmit={onSocialSubmit} className="grid gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Field label="主页链接（自动识别）">
+              <input
+                className={inputCls}
+                type="text"
+                inputMode="url"
+                autoComplete="off"
+                placeholder="https://x.com/… 或 weibo.com/u/… / 小红书 user/profile/…"
+                value={socialForm.link}
+                onChange={(e) => onSocialLinkChange(e.target.value)}
+                onPaste={(e) => {
+                  const text = e.clipboardData.getData("text").trim();
+                  if (text) {
+                    e.preventDefault();
+                    onSocialLinkChange(text);
+                  }
+                }}
+                disabled={busy}
+              />
+            </Field>
+            {socialHint ? (
+              <p className="mt-1 text-xs text-[var(--muted)]">{socialHint}</p>
+            ) : null}
+          </div>
           <Field label="显示名">
             <input
               className={inputCls}
-              required
               value={socialForm.name}
               onChange={(e) => setSocialForm((f) => ({ ...f, name: e.target.value }))}
               disabled={busy}
+              placeholder="可留空，识别后自动填入"
             />
           </Field>
           <Field label="平台">
@@ -585,14 +876,18 @@ export default function SubscribePage() {
             <Field label="账号 / Handle">
               <input
                 className={inputCls}
-                required
-                placeholder="@username 或 UID"
+                placeholder="@username、UID，或直接粘贴主页链接"
                 value={socialForm.handle}
-                onChange={(e) => setSocialForm((f) => ({ ...f, handle: e.target.value }))}
+                onChange={(e) => onSocialHandleChange(e.target.value)}
                 disabled={busy}
               />
             </Field>
           </div>
+          <RefreshField
+            value={socialForm.refresh_interval}
+            onChange={(v) => setSocialForm((f) => ({ ...f, refresh_interval: v }))}
+            disabled={busy}
+          />
           <div className="flex flex-wrap gap-2 sm:col-span-2">
             <button
               type="submit"
@@ -606,9 +901,7 @@ export default function SubscribePage() {
                 type="button"
                 disabled={busy}
                 className="rounded-md border border-[var(--line)] px-3 py-2 text-sm disabled:opacity-50"
-                onClick={() =>
-                  setSocialForm({ id: null, name: "", platform: "weibo", handle: "" })
-                }
+                onClick={resetSocialForm}
               >
                 取消编辑
               </button>
@@ -620,14 +913,16 @@ export default function SubscribePage() {
       <section id="sec-video" className="scroll-mt-6 space-y-4">
         <div>
           <h2 className="font-[family-name:var(--font-display)] text-xl">B 站 / YouTube</h2>
-          <p className="mt-1 text-sm text-[var(--muted)]">绑定 UP 主 mid 或 YouTube 频道 ID / URL。</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            粘贴 UP 主空间或 YouTube 频道链接自动识别，或手动填写 mid / 频道 ID。
+          </p>
         </div>
         <ul className="divide-y divide-[var(--line)] border-y border-[var(--line)]">
           {videoSources.map((s) => (
             <SourceRow
               key={s.id}
               title={s.name}
-              meta={`${s.type === "bilibili" ? "B站" : "YouTube"} · ${cfgStr(s.config, "account") || "（未配置账号）"}`}
+              meta={`${s.type === "bilibili" ? "B站" : "YouTube"} · ${refreshLabel(cfgStr(s.config, "refresh_interval") || DEFAULT_REFRESH.video)} · ${cfgStr(s.config, "account") || "（未配置账号）"}`}
               enabled={s.enabled}
               onEdit={() => editVideo(s)}
               onToggle={() =>
@@ -646,13 +941,37 @@ export default function SubscribePage() {
           ) : null}
         </ul>
         <form onSubmit={onVideoSubmit} className="grid gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Field label="空间 / 频道链接（自动识别）">
+              <input
+                className={inputCls}
+                type="text"
+                inputMode="url"
+                autoComplete="off"
+                placeholder="https://space.bilibili.com/… 或 youtube.com/@… /channel/UC…"
+                value={videoForm.link}
+                onChange={(e) => onVideoLinkChange(e.target.value)}
+                onPaste={(e) => {
+                  const text = e.clipboardData.getData("text").trim();
+                  if (text) {
+                    e.preventDefault();
+                    onVideoLinkChange(text);
+                  }
+                }}
+                disabled={busy}
+              />
+            </Field>
+            {videoHint ? (
+              <p className="mt-1 text-xs text-[var(--muted)]">{videoHint}</p>
+            ) : null}
+          </div>
           <Field label="显示名">
             <input
               className={inputCls}
-              required
               value={videoForm.name}
               onChange={(e) => setVideoForm((f) => ({ ...f, name: e.target.value }))}
               disabled={busy}
+              placeholder="可留空，识别后自动填入"
             />
           </Field>
           <Field label="平台">
@@ -672,19 +991,25 @@ export default function SubscribePage() {
             </select>
           </Field>
           <div className="sm:col-span-2">
-            <Field label={videoForm.type === "bilibili" ? "UID / mid" : "频道 ID 或 URL"}>
+            <Field label={videoForm.type === "bilibili" ? "UID / mid" : "频道 ID 或 Handle"}>
               <input
                 className={inputCls}
-                required
                 placeholder={
-                  videoForm.type === "bilibili" ? "例如 12345678" : "UC… 或 https://youtube.com/@"
+                  videoForm.type === "bilibili"
+                    ? "例如 12345678，或粘贴空间链接"
+                    : "UC… / @handle，或粘贴频道链接"
                 }
                 value={videoForm.account}
-                onChange={(e) => setVideoForm((f) => ({ ...f, account: e.target.value }))}
+                onChange={(e) => onVideoAccountChange(e.target.value)}
                 disabled={busy}
               />
             </Field>
           </div>
+          <RefreshField
+            value={videoForm.refresh_interval}
+            onChange={(v) => setVideoForm((f) => ({ ...f, refresh_interval: v }))}
+            disabled={busy}
+          />
           <div className="flex flex-wrap gap-2 sm:col-span-2">
             <button
               type="submit"
@@ -698,9 +1023,7 @@ export default function SubscribePage() {
                 type="button"
                 disabled={busy}
                 className="rounded-md border border-[var(--line)] px-3 py-2 text-sm disabled:opacity-50"
-                onClick={() =>
-                  setVideoForm({ id: null, name: "", type: "bilibili", account: "" })
-                }
+                onClick={resetVideoForm}
               >
                 取消编辑
               </button>

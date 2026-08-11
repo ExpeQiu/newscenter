@@ -5,6 +5,7 @@ import logging
 from typing import Any
 from uuid import uuid4
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from pipeline.models import AiJob, Item, PipelineRun, Source
@@ -28,7 +29,6 @@ def purge_source_items(db: Session, source_id: str) -> int:
     ids = [row[0] for row in db.query(Item.id).filter(Item.source_id == source_id).all()]
     if not ids:
         return 0
-    # ai_jobs.payload.item_id 无 FK，需显式清理
     for iid in ids:
         db.query(AiJob).filter(AiJob.payload["item_id"].astext == iid).delete(
             synchronize_session=False
@@ -36,6 +36,22 @@ def purge_source_items(db: Session, source_id: str) -> int:
     deleted = db.query(Item).filter(Item.source_id == source_id).delete(synchronize_session=False)
     logger.info("purge_source_items source_id=%s deleted=%s", source_id, deleted)
     return int(deleted or 0)
+
+
+def _refresh_existing(existing: Item, it: CollectItem) -> bool:
+    refreshed = False
+    if it.raw:
+        merged = {**(existing.raw or {}), **it.raw}
+        if merged != (existing.raw or {}):
+            existing.raw = merged
+            refreshed = True
+    if it.published_at and existing.published_at != it.published_at:
+        existing.published_at = it.published_at
+        refreshed = True
+    if it.thumbnail_url and existing.thumbnail_url != it.thumbnail_url:
+        existing.thumbnail_url = it.thumbnail_url
+        refreshed = True
+    return refreshed
 
 
 def upsert_items(
@@ -60,72 +76,92 @@ def upsert_items(
         h = content_hash(it)
         existing = db.query(Item).filter(Item.content_hash == h).first()
         if existing:
-            # 去重跳过入库，但刷新展示用 meta（播放量/封面/发布时间）
-            refreshed = False
-            if it.raw:
-                merged = {**(existing.raw or {}), **it.raw}
-                if merged != (existing.raw or {}):
-                    existing.raw = merged
-                    refreshed = True
-            if it.published_at and existing.published_at != it.published_at:
-                existing.published_at = it.published_at
-                refreshed = True
-            if it.thumbnail_url and existing.thumbnail_url != it.thumbnail_url:
-                existing.thumbnail_url = it.thumbnail_url
-                refreshed = True
+            refreshed = _refresh_existing(existing, it)
             skipped += 1
             logger.info(
-                "skip_dup",
-                extra={
-                    "run_id": run_id,
-                    "content_hash": h,
-                    "source": it.source,
-                    "meta_refreshed": refreshed,
-                },
+                "skip_dup run_id=%s content_hash=%s source=%s meta_refreshed=%s",
+                run_id,
+                h,
+                it.source,
+                refreshed,
             )
             continue
-        row = Item(
-            source_id=source_obj.id if source_obj else None,
-            source_type=it.source,
-            content_type=infer_content_type(it),
-            url=it.url,
-            title=it.title,
-            body=it.content,
-            content_hash=h,
-            embed_provider=it.embed_provider,
-            embed_id=it.embed_id,
-            embed_url=it.embed_url,
-            thumbnail_url=it.thumbnail_url,
-            published_at=it.published_at,
-            raw=it.raw,
-        )
-        db.add(row)
-        db.flush()
-        inserted += 1
-        logger.info(
-            "item_inserted",
-            extra={"run_id": run_id, "content_hash": h, "item_id": row.id, "source": it.source},
-        )
-        if enqueue_ai:
-            for job_type in ("summarize", "classify"):
-                db.add(
-                    AiJob(
-                        job_type=job_type,
-                        payload={"item_id": row.id},
-                        status="pending",
-                        run_id=run_id,
-                    )
+
+        try:
+            with db.begin_nested():
+                row = Item(
+                    source_id=source_obj.id if source_obj else None,
+                    source_type=it.source,
+                    content_type=infer_content_type(it),
+                    url=it.url,
+                    title=it.title,
+                    body=it.content,
+                    content_hash=h,
+                    embed_provider=it.embed_provider,
+                    embed_id=it.embed_id,
+                    embed_url=it.embed_url,
+                    thumbnail_url=it.thumbnail_url,
+                    published_at=it.published_at,
+                    raw=it.raw,
                 )
+                db.add(row)
+                db.flush()
+                if enqueue_ai:
+                    for job_type in ("summarize", "classify"):
+                        db.add(
+                            AiJob(
+                                job_type=job_type,
+                                payload={"item_id": row.id},
+                                status="pending",
+                                run_id=run_id,
+                            )
+                        )
+                inserted += 1
+                logger.info(
+                    "item_inserted run_id=%s content_hash=%s item_id=%s source=%s",
+                    run_id,
+                    h,
+                    row.id,
+                    it.source,
+                )
+        except IntegrityError:
+            existing = db.query(Item).filter(Item.content_hash == h).first()
+            if existing:
+                _refresh_existing(existing, it)
+            skipped += 1
+            logger.info(
+                "skip_dup_race run_id=%s content_hash=%s source=%s",
+                run_id,
+                h,
+                it.source,
+            )
 
     stats = {"inserted": inserted, "skipped": skipped, "total": len(items)}
-    db.add(
-        PipelineRun(
-            run_id=run_id,
-            pipeline_id="ingest",
-            source=source_name or (items[0].source if items else None),
-            stats=stats,
-            status="ok",
+    try:
+        with db.begin_nested():
+            db.add(
+                PipelineRun(
+                    run_id=run_id,
+                    pipeline_id="ingest",
+                    source=source_name or (items[0].source if items else None),
+                    stats=stats,
+                    status="ok",
+                )
+            )
+            db.flush()
+    except IntegrityError:
+        alt = f"{run_id}-{uuid4().hex[:8]}"
+        db.add(
+            PipelineRun(
+                run_id=alt,
+                pipeline_id="ingest",
+                source=source_name or (items[0].source if items else None),
+                stats=stats,
+                status="ok",
+            )
         )
-    )
+        logger.warning("pipeline_run_id_collision original=%s alt=%s", run_id, alt)
+        run_id = alt
+
     db.commit()
     return {"run_id": run_id, **stats}

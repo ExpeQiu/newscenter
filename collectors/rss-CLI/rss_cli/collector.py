@@ -54,10 +54,64 @@ _META_OG_RE = re.compile(
     r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']',
     re.I,
 )
-_MAIN_BLOCK_RE = re.compile(
-    r'(?:id=["\']block_\d+["\']|class=["\'][^"\']*content-main[^"\']*["\']|'
-    r"<article\b|<main\b|id=[\"']content[\"']|class=[\"'][^\"']*\barticle\b[^\"']*[\"'])"
-    r"[\s\S]{200,50000}",
+
+# 优先更具体的主栏；content-main 常含侧栏，放后面并由去噪剥离
+_MAIN_SELECTORS: list[re.Pattern[str]] = [
+    re.compile(
+        r'<div[^>]*class=["\'][^"\']*content-main-fl[^"\']*["\'][^>]*>[\s\S]*?'
+        r'(?=<div[^>]*class=["\'][^"\']*content-main-fr|<!--\s*content-main|</div>\s*</div>\s*<!--)',
+        re.I,
+    ),
+    re.compile(
+        r'<(?:article|main)\b[^>]*>[\s\S]{200,80000}?</(?:article|main)>',
+        re.I,
+    ),
+    re.compile(
+        r'<div[^>]*(?:id|class)=["\'][^"\']*(?:article-content|news-content|newscont|main-content|'
+        r'post-content|entry-content|content-main|正文)[^"\']*["\'][^>]*>[\s\S]{200,80000}',
+        re.I,
+    ),
+    re.compile(r'<div[^>]*id=["\']block_\d+["\'][^>]*>[\s\S]{120,40000}</div>', re.I),
+]
+
+_NOISE_TAG_RE = re.compile(
+    r"<(aside|nav|footer|header|form|iframe|svg)\b[^>]*>[\s\S]*?</\1>",
+    re.I,
+)
+# 按 class/id 关键字剥离广告、侧栏、悬浮、分享、页脚等（非贪婪到同层闭合较难，迭代剥离）
+_NOISE_ATTR_RE = re.compile(
+    r"<(?:div|section|ul|dl|table)\b[^>]*(?:id|class)=[\"'][^\"']*(?:"
+    r"side(?:bar|nav)?|sidenav|nav-r|nav-content|topHeader|top-bg|"
+    r"ad-banner|banner-ad|top-banner|foot(?:er)?|"
+    r"content-main-fr|recommend|hot-news|hotlist|login|register|share|bdshare|"
+    r"ad(?:s|vert|link|box|_|\b)|float|fixed|popup|modal|toolbar|backtop|qrcode|"
+    r"app-download|download-app|copyright|friendlink|友情链接"
+    r")[^\"']*[\"'][^>]*>",
+    re.I,
+)
+
+_BOILERPLATE_CUT_RE = re.compile(
+    r"(?:"
+    r"免责声明|法律声明|风险提示|版权所有|Copyright\s+\w|"
+    r"关于同花顺|软件下载|友情链接|投资者关系|联系我们|招聘英才|网友意见箱|"
+    r"回顶部|扫码关注|下载APP|立即下载|开通会员|相关推荐|热门推荐|猜你喜欢|"
+    r"责任编辑[:：]|来源[:：]\s*$"
+    r")",
+    re.I | re.M,
+)
+
+_NOISE_LINE_RE = re.compile(
+    r"^(?:"
+    r"[|｜]+|"
+    r"更多>?|"
+    r"查看.+>|"
+    r"登录|注册|首页|资讯|行情|数据|"
+    r"代码|简称|事项|原因|"
+    r"全球市场|热点资讯|投资机会|公司资讯|"
+    r"-->|"
+    r"Copyright\.?$|"
+    r"浙江同花顺.+"
+    r")$",
     re.I,
 )
 
@@ -79,7 +133,21 @@ def collect_demo() -> list[CollectItem]:
     ]
 
 
-def collect_feed(url: str, *, limit: int = 30) -> list[CollectItem]:
+def collect_feed(url: str, *, limit: int = 30, since: str | None = None) -> list[CollectItem]:
+    since_dt = None
+    if since:
+        try:
+            since_dt = parsedate_to_datetime(since) if "," in since else None
+        except Exception:  # noqa: BLE001
+            since_dt = None
+        if since_dt is None:
+            try:
+                from datetime import datetime
+
+                since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            except ValueError:
+                since_dt = None
+
     parsed = feedparser.parse(url)
     items: list[CollectItem] = []
     for entry in parsed.entries[:limit]:
@@ -89,6 +157,8 @@ def collect_feed(url: str, *, limit: int = 30) -> list[CollectItem]:
                 published = parsedate_to_datetime(entry.published)
             except Exception:  # noqa: BLE001
                 published = None
+        if since_dt and published and published <= since_dt:
+            continue
         content = ""
         if getattr(entry, "summary", None):
             content = entry.summary
@@ -126,19 +196,91 @@ def _decode_html(resp: httpx.Response) -> str:
     return raw.decode("utf-8", errors="ignore")
 
 
-def _strip_to_text(html: str, *, limit: int = 8000) -> str:
-    cleaned = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", html)
-    cleaned = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", cleaned)
-    cleaned = re.sub(r"(?is)<noscript[^>]*>.*?</noscript>", " ", cleaned)
+def _drop_element_from(html: str, start: int) -> str:
+    """从 start 处的开标签起，按标签栈删除整块元素；失败则删到下一个同级开/闭标签。"""
+    m = re.match(r"<([a-z0-9]+)\b[^>]*>", html[start:], re.I)
+    if not m:
+        return html[:start] + html[start + 1 :]
+    tag = m.group(1).lower()
+    i = start + m.end()
+    if html[start : start + m.end()].endswith("/>"):
+        return html[:start] + html[start + m.end() :]
+    depth = 1
+    open_re = re.compile(rf"<{tag}\b[^>]*>", re.I)
+    close_re = re.compile(rf"</{tag}\s*>", re.I)
+    while i < len(html) and depth > 0:
+        mo = open_re.search(html, i)
+        mc = close_re.search(html, i)
+        if mc is None:
+            return html[:start] + html[i:]
+        if mo and mo.start() < mc.start():
+            depth += 1
+            i = mo.end()
+        else:
+            depth -= 1
+            i = mc.end()
+    return html[:start] + html[i:]
+
+
+def _remove_noise_html(html: str) -> str:
+    """剥离脚本样式、语义噪音标签，以及广告/侧栏/页脚等区块。"""
+    out = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", html)
+    out = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", out)
+    out = re.sub(r"(?is)<noscript[^>]*>.*?</noscript>", " ", out)
+    out = _NOISE_TAG_RE.sub(" ", out)
+    # 迭代删除带噪音 class/id 的块（侧栏、广告、悬浮等）
+    for _ in range(40):
+        m = _NOISE_ATTR_RE.search(out)
+        if not m:
+            break
+        nxt = _drop_element_from(out, m.start())
+        if nxt == out:
+            out = out[: m.start()] + out[m.end() :]
+        else:
+            out = nxt
+    return out
+
+
+def _trim_boilerplate_text(text: str) -> str:
+    """正文末尾常见页脚/推荐截断，并丢掉导航残片行。"""
+    if not text:
+        return ""
+    cut = _BOILERPLATE_CUT_RE.search(text)
+    if cut and cut.start() > 200:
+        text = text[: cut.start()].rstrip()
+
+    lines: list[str] = []
+    for ln in text.splitlines():
+        s = ln.strip()
+        if not s:
+            if lines and lines[-1] != "":
+                lines.append("")
+            continue
+        if _NOISE_LINE_RE.match(s):
+            continue
+        if len(s) <= 2 and s in {"|", "｜", "·", "-", "—"}:
+            continue
+        lines.append(s)
+    # 折叠空行
+    out: list[str] = []
+    for ln in lines:
+        if ln == "" and (not out or out[-1] == ""):
+            continue
+        out.append(ln)
+    return "\n".join(out).strip()
+
+
+def _strip_to_text(html: str, *, limit: int = 12000) -> str:
+    cleaned = _remove_noise_html(html)
     cleaned = re.sub(r"(?i)<br\s*/?>", "\n", cleaned)
     cleaned = re.sub(r"(?i)</p>", "\n", cleaned)
-    cleaned = re.sub(r"(?i)</(div|h[1-6]|li|tr)>", "\n", cleaned)
+    cleaned = re.sub(r"(?i)</(div|h[1-6]|li|tr|dd|dt)>", "\n", cleaned)
     cleaned = re.sub(r"<[^>]+>", " ", cleaned)
     cleaned = unescape(cleaned)
     cleaned = cleaned.replace("\xa0", " ").replace("&nbsp", " ")
     cleaned = re.sub(r"[ \t\f\v]+", " ", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-    return cleaned.strip()[:limit]
+    return _trim_boilerplate_text(cleaned.strip())[:limit]
 
 
 def _page_title(html: str) -> str:
@@ -151,15 +293,120 @@ def _page_title(html: str) -> str:
     return ""
 
 
+def _slice_element_at(html: str, start: int) -> str:
+    """从 start 开标签截取完整元素（含开闭标签）。"""
+    m = re.match(r"<([a-z0-9]+)\b[^>]*>", html[start:], re.I)
+    if not m:
+        return ""
+    tag = m.group(1).lower()
+    if html[start : start + m.end()].endswith("/>"):
+        return html[start : start + m.end()]
+    depth = 1
+    i = start + m.end()
+    open_re = re.compile(rf"<{tag}\b[^>]*>", re.I)
+    close_re = re.compile(rf"</{tag}\s*>", re.I)
+    while i < len(html) and depth > 0:
+        mo = open_re.search(html, i)
+        mc = close_re.search(html, i)
+        if mc is None:
+            return html[start:i]
+        if mo and mo.start() < mc.start():
+            depth += 1
+            i = mo.end()
+        else:
+            depth -= 1
+            i = mc.end()
+    return html[start:i]
+
+
+def _salvage_lead_html(html: str) -> str:
+    """保留可能被装饰容器包住的金句 / 收盘指数等导语块。"""
+    parts: list[str] = []
+    for m in re.finditer(
+        r'<div[^>]*id=["\']block_\d+["\'][^>]*>([\s\S]*?)</div>',
+        html,
+        re.I,
+    ):
+        inner = m.group(1)
+        text = unescape(re.sub(r"<[^>]+>", "", inner)).strip()
+        if 16 <= len(text) <= 320 and (
+            "——" in text or "—" in text or "&mdash;" in inner or "mdash" in inner.lower()
+        ):
+            parts.append(f"<div>{inner}</div>")
+
+    m2 = re.search(r'<div[^>]*class=["\'][^"\']*\byestoday\b[^"\']*["\'][^>]*>', html, re.I)
+    if m2:
+        chunk = _slice_element_at(html, m2.start())
+        if "收盘" in chunk or "指数" in chunk:
+            parts.append(chunk)
+
+    return "\n".join(parts)
+
+
 def _extract_main_html(html: str) -> str:
-    m = _MAIN_BLOCK_RE.search(html)
+    """抽取主内容 HTML；去噪后优先 content 主栏，避免侧栏/页脚。"""
+    lead = _salvage_lead_html(html)
+    cleaned = _remove_noise_html(html)
+
+    def _score(body: str) -> int:
+        text_len = len(re.sub(r"<[^>]+>", "", body))
+        low = body.lower()
+        penalty = 0
+        if "content-main-fr" in low or "sidenav" in low or "sideNav" in body:
+            penalty += 2000
+        if "免责声明" in body or "Copyright" in body:
+            penalty += 800
+        return text_len - penalty
+
+    candidates: list[tuple[int, str, str]] = []
+
+    # 1) 整页 content 容器（含收盘指数 + 左栏正文；侧栏已去）
+    m = re.search(
+        r'<div[^>]*class=["\'](?:[^"\']*\s)?content(?:\s[^"\']*)?["\'][^>]*>[\s\S]{200,120000}',
+        cleaned,
+        re.I,
+    )
     if m:
         chunk = m.group(0)
-        # drop leading tag/attr fragment so strip starts at real content
         gt = chunk.find(">")
-        return chunk[gt + 1 :] if gt != -1 else chunk
-    m = re.search(r"(?is)<body[^>]*>(.*)</body>", html)
-    return m.group(1) if m else html
+        body = chunk[gt + 1 :] if gt != -1 else chunk
+        candidates.append((_score(body), "content", body))
+
+    for label, sel in (
+        ("content-main-fl", _MAIN_SELECTORS[0]),
+        ("article", _MAIN_SELECTORS[1]),
+        ("article-like", _MAIN_SELECTORS[2]),
+        ("block", _MAIN_SELECTORS[3]),
+    ):
+        for sm in sel.finditer(cleaned):
+            chunk = sm.group(0)
+            gt = chunk.find(">")
+            body = chunk[gt + 1 :] if gt != -1 else chunk
+            candidates.append((_score(body), label, body))
+
+    best = ""
+    label = "body"
+    if candidates:
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        score, label, best = candidates[0]
+        if score < 120:
+            best = ""
+        else:
+            logger.info("web_page_main_hit label=%s score=%s chars=%s", label, score, len(best))
+
+    if not best:
+        m = re.search(r"(?is)<body[^>]*>(.*)</body>", cleaned)
+        logger.info("web_page_main_fallback=body")
+        best = m.group(1) if m else cleaned
+
+    if lead:
+        # 避免 lead 已包含在 best 中时重复
+        lead_txt = re.sub(r"<[^>]+>", "", lead)
+        best_txt = re.sub(r"<[^>]+>", "", best)
+        if lead_txt.strip() and lead_txt.strip()[:40] not in best_txt:
+            best = lead + "\n" + best
+            logger.info("web_page_lead_prepended chars=%s", len(lead))
+    return best
 
 
 def _canonicalize_web_url(url: str, html: str) -> tuple[str, str | None]:

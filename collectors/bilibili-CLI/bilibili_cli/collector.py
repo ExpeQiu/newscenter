@@ -139,9 +139,18 @@ def collect_space_videos(
     limit: int = 30,
     timeout: float = 30.0,
     retries: int = 3,
+    since: str | None = None,
 ) -> list[CollectItem]:
     """Pull recent uploads via public space arc/search (no media download)."""
     mid = resolve_mid(mid)
+    since_dt = None
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            if since_dt.tzinfo is None:
+                since_dt = since_dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            since_dt = None
     space_url = f"https://space.bilibili.com/{mid}"
     m_space = f"https://m.bilibili.com/space/{mid}"
     headers = {**_HEADERS, "Referer": m_space, "Origin": "https://m.bilibili.com"}
@@ -213,18 +222,21 @@ def collect_space_videos(
             continue
         item = _item_from_vlist(v, mid=mid, up_name=up_name)
         if item:
+            if since_dt and item.published_at and item.published_at <= since_dt:
+                continue
             items.append(item)
     logger.info(
-        "bilibili_space_done mid=%s up=%s items=%s",
+        "bilibili_space_done mid=%s up=%s items=%s since=%s",
         mid,
         up_name,
         len(items),
+        since,
     )
     return items
 
 
 def collect_by_account(
-    account: str, *, source_label: str = "", limit: int = 30
+    account: str, *, source_label: str = "", limit: int = 30, since: str | None = None
 ) -> list[CollectItem]:
     """account 为 BVxxx 时拉单条；否则按 mid / 空间 URL 拉投稿更新。"""
     acc = (account or "").strip()
@@ -233,4 +245,4 @@ def collect_by_account(
     if _BVID_RE.match(acc):
         return collect_by_bvid(acc, title=source_label or None)
     mid = resolve_mid(acc)
-    return collect_space_videos(mid, source_label=source_label, limit=limit)
+    return collect_space_videos(mid, source_label=source_label, limit=limit, since=since)

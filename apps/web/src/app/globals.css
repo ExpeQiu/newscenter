@@ -40,3 +40,142 @@ body {
 .animate-fade-up {
   animation: fade-up 0.45s ease both;
 }
+
+/* 今日洞察 Markdown：段落间距与列表可读性 */
+.prose-digest {
+  color: var(--body);
+}
+
+.prose-digest > :first-child {
+  margin-top: 0;
+}
+
+.prose-digest > :last-child {
+  margin-bottom: 0;
+}
+
+.prose-digest > * + * {
+  margin-top: 0.85em;
+}
+
+.prose-digest > h1 + *,
+.prose-digest > h2 + *,
+.prose-digest > h3 + * {
+  margin-top: 0.65em;
+}
+
+.prose-digest li > p {
+  margin: 0;
+}
+
+.prose-digest li > p + p {
+  margin-top: 0.4em;
+}
+
+/* 详情页网页/资讯正文 */
+.prose-article {
+  max-width: 42rem;
+  color: var(--body);
+  font-size: 16px;
+  line-height: 1.85;
+  letter-spacing: 0.01em;
+}
+
+.prose-article > :first-child {
+  margin-top: 0;
+}
+
+.prose-article > :last-child {
+  margin-bottom: 0;
+}
+
+.prose-article-p {
+  margin: 0;
+  text-align: justify;
+  text-justify: inter-ideograph;
+}
+
+.prose-article > * + .prose-article-p,
+.prose-article > * + .prose-article-quote,
+.prose-article > * + .prose-article-lines {
+  margin-top: 1.15em;
+}
+
+.prose-article-quote {
+  margin: 0;
+  padding: 0.85rem 0 0.85rem 1rem;
+  border-left: 3px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  border-radius: 0 0.375rem 0.375rem 0;
+}
+
+.prose-article-quote p {
+  margin: 0;
+  font-size: 1.02em;
+  line-height: 1.75;
+}
+
+.prose-article-quote cite {
+  display: block;
+  margin-top: 0.55rem;
+  font-style: normal;
+  font-size: 0.85em;
+  color: var(--muted);
+}
+
+.prose-article-quote cite::before {
+  content: "—— ";
+}
+
+.prose-article-lines {
+  margin: 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.375rem;
+  background: color-mix(in srgb, var(--surface) 85%, white);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.95em;
+  line-height: 1.65;
+  color: var(--ink);
+}
+
+.prose-article-lines p {
+  margin: 0;
+}
+
+.prose-article-lines p + p {
+  margin-top: 0.35em;
+}
+
+/* 详情页摘要 */
+.prose-summary {
+  margin-top: 0.65rem;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.8;
+  letter-spacing: 0.015em;
+}
+
+.prose-summary > p {
+  margin: 0;
+  text-align: justify;
+  text-justify: inter-ideograph;
+}
+
+.prose-summary > p + p {
+  margin-top: 0.75em;
+}
+
+.prose-summary-lead {
+  font-size: 1.05em;
+  line-height: 1.75;
+  color: var(--ink);
+}
+
+.prose-summary-empty {
+  margin-top: 0.65rem;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--muted);
+}

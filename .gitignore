@@ -1,4 +1,8 @@
 .env
+.env.cloud.local
+deploy/.env.pg
+digest-sources.local.yml
+vault-data/
 .venv/
 venv/
 .npm-cache/

@@ -80,6 +80,9 @@ class NewsCClient:
             params={"source": source, "path": path},
         )
 
+    def vault_ingest(self) -> dict[str, Any]:
+        return self._request("POST", "/digests/vault/ingest")
+
     def digest_today(self) -> dict[str, Any]:
         return self._request("GET", "/digests/today")
 
@@ -130,11 +133,20 @@ class NewsCClient:
         label: str,
         path: str,
         enabled: bool = True,
+        refresh_interval: str | None = None,
     ) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "id": source_id,
+            "label": label,
+            "path": path,
+            "enabled": enabled,
+        }
+        if refresh_interval is not None:
+            body["refresh_interval"] = refresh_interval
         return self._request(
             "POST",
             "/digests/vault/sources",
-            json_body={"id": source_id, "label": label, "path": path, "enabled": enabled},
+            json_body=body,
         )
 
     def vault_source_set_enabled(self, source_id: str, enabled: bool) -> dict[str, Any]:

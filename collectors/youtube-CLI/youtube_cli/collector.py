@@ -139,13 +139,22 @@ def collect_channel_feed(
     source_label: str = "",
     account: str = "",
     limit: int = 30,
+    since: str | None = None,
 ) -> list[CollectItem]:
     """Pull recent videos via public Atom feed (no API key / no media download)."""
     cid = (channel_id or "").strip()
     if not _CHANNEL_ID_RE.match(cid):
         raise ValueError(f"invalid youtube channel_id: {channel_id!r}")
+    since_dt = None
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            if since_dt.tzinfo is None:
+                since_dt = since_dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            since_dt = None
     feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={cid}"
-    logger.info("youtube_feed_fetch channel_id=%s limit=%s", cid, limit)
+    logger.info("youtube_feed_fetch channel_id=%s limit=%s since=%s", cid, limit, since)
     parsed = feedparser.parse(feed_url)
     channel_title = getattr(parsed.feed, "title", "") or source_label or account
     items: list[CollectItem] = []
@@ -156,6 +165,8 @@ def collect_channel_feed(
         published = _parse_struct_time(getattr(entry, "published_parsed", None))
         if published is None:
             published = _parse_struct_time(getattr(entry, "updated_parsed", None))
+        if since_dt and published and published <= since_dt:
+            continue
         summary = getattr(entry, "summary", None) or getattr(entry, "description", None) or ""
         title = getattr(entry, "title", "") or f"YouTube {vid}"
         items.append(
@@ -187,7 +198,9 @@ def collect_channel_feed(
     return items
 
 
-def collect_by_account(account: str, *, source_label: str = "", limit: int = 30) -> list[CollectItem]:
+def collect_by_account(
+    account: str, *, source_label: str = "", limit: int = 30, since: str | None = None
+) -> list[CollectItem]:
     """account 为 11 位 video_id 时拉单条；否则解析频道并拉 Atom 更新。"""
     acc = (account or "").strip()
     if not acc:
@@ -202,6 +215,7 @@ def collect_by_account(account: str, *, source_label: str = "", limit: int = 30)
             source_label=source_label,
             account=bare,
             limit=limit,
+            since=since,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("youtube_channel_collect_fail account=%s err=%s", bare, exc)

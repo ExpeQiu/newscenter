@@ -138,6 +138,39 @@ class Digest(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class DigestVaultSource(Base):
+    """日报来源目录元数据（入库后随 push-db 上云，云端不依赖本机路径）。"""
+
+    __tablename__ = "digest_vault_sources"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    label: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    origin_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    file_count: Mapped[int] = mapped_column(Integer, default=0)
+    synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DigestVaultFile(Base):
+    """日报 HTML 正文入库（Mac 扫描写入，云端只读）。"""
+
+    __tablename__ = "digest_vault_files"
+    __table_args__ = (UniqueConstraint("source_id", "rel_path", name="uq_vault_file_source_path"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    source_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    source_label: Mapped[str] = mapped_column(String(200), default="")
+    rel_path: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(String(500), default="")
+    mtime: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    html: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Recommendation(Base):
     __tablename__ = "recommendations"
 
