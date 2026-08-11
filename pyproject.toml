@@ -26,15 +26,16 @@ dev = ["pytest>=8.0.0", "ruff>=0.8.0"]
 newsc-rss = "rss_cli.cli:main"
 newsc-youtube = "youtube_cli.cli:main"
 newsc-bilibili = "bilibili_cli.cli:main"
+newsc-digest = "digest_cli.cli:main"
 
 [build-system]
 requires = ["setuptools>=75.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = [".", "collectors/rss-CLI", "collectors/youtube-CLI", "collectors/bilibili-CLI"]
-include = ["orchestrator*", "intelligence*", "pipeline*", "rss_cli*", "youtube_cli*", "bilibili_cli*"]
+where = [".", "collectors/rss-CLI", "collectors/youtube-CLI", "collectors/bilibili-CLI", "digest-CLI"]
+include = ["orchestrator*", "intelligence*", "pipeline*", "rss_cli*", "youtube_cli*", "bilibili_cli*", "digest_cli*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "collectors"]
-pythonpath = [".", "collectors/rss-CLI", "collectors/youtube-CLI", "collectors/bilibili-CLI"]
+testpaths = ["tests", "collectors", "digest-CLI/tests"]
+pythonpath = [".", "collectors/rss-CLI", "collectors/youtube-CLI", "collectors/bilibili-CLI", "digest-CLI"]

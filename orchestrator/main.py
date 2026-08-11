@@ -25,6 +25,7 @@ from intelligence.worker import (  # noqa: E402
     process_pending,
 )
 from pipeline.db import get_db, init_db  # noqa: E402
+from pipeline.digest_sanitize import sanitize_digest_html  # noqa: E402
 from pipeline.ingest import upsert_items  # noqa: E402
 from pipeline.models import Digest, Item, ItemTag, Mark, Recommendation, Source, Tag  # noqa: E402
 from pipeline.normalize import CollectItem  # noqa: E402
@@ -224,17 +225,102 @@ def patch_category(item_id: str, body: CategoryPatch, db: Session = Depends(get_
     return _item_dict(item, db)
 
 
+ALLOWED_DIGEST_SOURCES = frozenset({"openclaw", "hermes", "cli", "intelligence", "demo"})
+
+
+class DigestPushBody(BaseModel):
+    digest_date: Optional[date] = None
+    html: str = ""
+    markdown: str = ""
+    highlights: list[str] = Field(default_factory=list)
+    source: str = "cli"
+    run_id: Optional[str] = None
+
+
 @app.get("/digests/today")
 def digest_today(db: Session = Depends(get_db)) -> dict[str, Any]:
     d = date.today()
     row = db.query(Digest).filter(Digest.digest_date == d).first()
     if not row:
-        return {"date": d.isoformat(), "markdown": None, "highlights": [], "empty": True}
+        return {
+            "date": d.isoformat(),
+            "markdown": None,
+            "html": None,
+            "highlights": [],
+            "source": None,
+            "run_id": None,
+            "empty": True,
+        }
+    html = (row.html or "").strip() or None
+    md = (row.markdown or "").strip() or None
     return {
         "date": d.isoformat(),
-        "markdown": row.markdown,
+        "markdown": md,
+        "html": html,
         "highlights": row.highlights or [],
-        "empty": False,
+        "source": row.source,
+        "run_id": row.run_id,
+        "empty": not (html or md),
+    }
+
+
+@app.post("/digests/push")
+def digest_push(body: DigestPushBody, db: Session = Depends(get_db)) -> dict[str, Any]:
+    html_raw = (body.html or "").strip()
+    markdown = (body.markdown or "").strip()
+    if not html_raw and not markdown:
+        raise HTTPException(400, "html or markdown required")
+
+    source = (body.source or "cli").strip().lower()
+    if source not in ALLOWED_DIGEST_SOURCES:
+        raise HTTPException(400, f"invalid source: {source}")
+
+    d = body.digest_date or date.today()
+    run_id = body.run_id or str(uuid4())
+    html = sanitize_digest_html(html_raw) if html_raw else ""
+
+    row = db.query(Digest).filter(Digest.digest_date == d).first()
+    created = False
+    if row:
+        if html:
+            row.html = html
+        if markdown:
+            row.markdown = markdown
+        if body.highlights:
+            row.highlights = body.highlights
+        row.source = source
+        row.run_id = run_id
+    else:
+        created = True
+        row = Digest(
+            digest_date=d,
+            html=html,
+            markdown=markdown,
+            highlights=body.highlights or [],
+            source=source,
+            run_id=run_id,
+        )
+        db.add(row)
+
+    db.commit()
+    db.refresh(row)
+    html_bytes = len((row.html or "").encode("utf-8"))
+    logger.info(
+        "digest_push ok date=%s source=%s run_id=%s bytes=%s created=%s",
+        d.isoformat(),
+        source,
+        run_id,
+        html_bytes,
+        created,
+    )
+    return {
+        "ok": True,
+        "digest_date": d.isoformat(),
+        "id": row.id,
+        "source": source,
+        "run_id": run_id,
+        "bytes": html_bytes,
+        "created": created,
     }
 
 

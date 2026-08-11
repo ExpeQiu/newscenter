@@ -15,7 +15,7 @@ set -a
 source .env
 set +a
 
-export PYTHONPATH="$ROOT:$ROOT/collectors/rss-CLI:$ROOT/collectors/youtube-CLI:$ROOT/collectors/bilibili-CLI:${PYTHONPATH:-}"
+export PYTHONPATH="$ROOT:$ROOT/collectors/rss-CLI:$ROOT/collectors/youtube-CLI:$ROOT/collectors/bilibili-CLI:$ROOT/digest-CLI:${PYTHONPATH:-}"
 
 if [[ ! -d .venv ]]; then
   python3 -m venv .venv

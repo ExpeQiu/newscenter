@@ -105,12 +105,14 @@ def process_job(db: Session, job: AiJob, provider=None) -> dict[str, Any]:
                 row.markdown = out.markdown
                 row.highlights = out.highlights
                 row.run_id = job.run_id
+                row.source = "intelligence"
             else:
                 db.add(
                     Digest(
                         digest_date=d,
                         markdown=out.markdown,
                         highlights=out.highlights,
+                        source="intelligence",
                         run_id=job.run_id,
                     )
                 )

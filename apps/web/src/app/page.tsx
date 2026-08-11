@@ -6,9 +6,12 @@ import { api, type Item } from "@/lib/api";
 import { ItemCard } from "@/components/ItemCard";
 
 export default function TodayPage() {
-  const [digest, setDigest] = useState<{ markdown: string | null; empty: boolean; date: string } | null>(
-    null
-  );
+  const [digest, setDigest] = useState<{
+    markdown: string | null;
+    html?: string | null;
+    empty: boolean;
+    date: string;
+  } | null>(null);
   const [recs, setRecs] = useState<{ score: number; reason: string; item: Item }[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
@@ -41,16 +44,25 @@ export default function TodayPage() {
       ) : null}
 
       <section className="space-y-3">
-        <h2 className="font-[family-name:var(--font-display)] text-2xl">今日洞察</h2>
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="font-[family-name:var(--font-display)] text-2xl">今日洞察</h2>
+          <Link href="/digest" className="text-sm text-[var(--accent)] underline">
+            HTML 日报
+          </Link>
+        </div>
         {!digest ? (
           <p className="text-sm text-[var(--muted)]">加载中…</p>
         ) : digest.empty || !digest.markdown ? (
           <div className="rounded-md bg-[var(--surface)] px-4 py-5 text-sm text-[var(--body)]">
-            暂无日报。去{" "}
+            暂无洞察。去{" "}
             <Link href="/settings" className="text-[var(--accent)] underline">
               设置
             </Link>{" "}
-            跑一次采集与 AI 处理。
+            跑一次采集与 AI 处理；CLI 推送的 HTML 见{" "}
+            <Link href="/digest" className="text-[var(--accent)] underline">
+              日报
+            </Link>
+            。
           </div>
         ) : (
           <article className="prose-digest whitespace-pre-wrap rounded-md bg-[var(--surface)]/70 px-4 py-5 text-[15px] leading-relaxed text-[var(--body)]">

@@ -131,7 +131,9 @@ class Digest(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     digest_date: Mapped[date] = mapped_column(Date, nullable=False)
     markdown: Mapped[str] = mapped_column(Text, default="")
+    html: Mapped[str] = mapped_column(Text, default="")
     highlights: Mapped[list[Any]] = mapped_column(JSONB, default=list)
+    source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # openclaw|hermes|cli|intelligence|demo
     run_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

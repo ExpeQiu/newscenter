@@ -14,7 +14,7 @@ set +a
 
 export AI_MOCK_MODE=true
 export AI_PROVIDER=mock
-export PYTHONPATH="$ROOT:$ROOT/collectors/rss-CLI:$ROOT/collectors/youtube-CLI:$ROOT/collectors/bilibili-CLI:${PYTHONPATH:-}"
+export PYTHONPATH="$ROOT:$ROOT/collectors/rss-CLI:$ROOT/collectors/youtube-CLI:$ROOT/collectors/bilibili-CLI:$ROOT/digest-CLI:${PYTHONPATH:-}"
 
 # shellcheck disable=SC1091
 source .venv/bin/activate 2>/dev/null || {
@@ -80,6 +80,14 @@ echo "$ITEMS" | python -c "import sys,json; d=json.load(sys.stdin); assert d['co
 echo "[verify] digest today"
 DIG=$(curl -sf "http://$ORCH_HOST:$ORCH_PORT/digests/today")
 echo "$DIG" | python -c "import sys,json; d=json.load(sys.stdin); assert d.get('markdown'), d"
+
+echo "[verify] digest HTML push (CLI demo)"
+pip install -q -e "$ROOT/digest-CLI"
+PUSH=$(newsc-digest push --demo --format json)
+echo "  $PUSH"
+echo "$PUSH" | python -c "import sys,json; d=json.load(sys.stdin); assert d.get('ok') is True and d.get('bytes',0)>0, d"
+DIG2=$(curl -sf "http://$ORCH_HOST:$ORCH_PORT/digests/today")
+echo "$DIG2" | python -c "import sys,json; d=json.load(sys.stdin); assert d.get('html'), d; assert 'Demo' in (d.get('html') or ''), d"
 
 echo "[verify] ask"
 ASK=$(curl -sf -X POST "http://$ORCH_HOST:$ORCH_PORT/ai/ask" -H 'Content-Type: application/json' -d '{"question":"这条在说什么？"}')

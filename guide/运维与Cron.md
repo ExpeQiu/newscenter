@@ -11,6 +11,17 @@ curl -s -X POST http://127.0.0.1:8787/ai/jobs/process -H 'Content-Type: applicat
 
 或由 OpenClaw cron 调用同一 HTTP 端点（业务仍经 intelligence worker 写回）。
 
+## HTML 日报推送（OpenClaw / Hermes）
+
+```bash
+pip install -e digest-CLI/
+newsc-digest push --file ~/reports/today.html --source openclaw --format json
+# 或
+newsc-digest push --demo --format json
+```
+
+Skill：[`digest-CLI/SKILL.md`](../digest-CLI/SKILL.md)（`newsc-digest-push`）。
+
 ## Verify 契约
 
-`./scripts/verify.sh` 覆盖：factory、hash 去重、ingest、AI mock 写回、digest、ask。
+`./scripts/verify.sh` 覆盖：factory、hash 去重、ingest、AI mock 写回、digest、HTML push demo、ask。

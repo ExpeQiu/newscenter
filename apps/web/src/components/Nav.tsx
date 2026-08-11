@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 const tabs = [
   { href: "/", label: "今日" },
+  { href: "/digest", label: "日报" },
   { href: "/feed", label: "浏览" },
   { href: "/saved", label: "收藏" },
   { href: "/settings", label: "设置" },
@@ -14,7 +15,7 @@ export function BottomNav() {
   const path = usePathname();
   return (
     <nav className="fixed bottom-0 inset-x-0 z-40 border-t border-[var(--line)] bg-[var(--bg)]/95 backdrop-blur md:hidden">
-      <ul className="grid grid-cols-4 text-sm">
+      <ul className="grid grid-cols-5 text-sm">
         {tabs.map((t) => {
           const active = t.href === "/" ? path === "/" : path.startsWith(t.href);
           return (

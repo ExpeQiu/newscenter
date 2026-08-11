@@ -54,9 +54,15 @@ export const api = {
       body: JSON.stringify({ category, lock }),
     }),
   digestToday: () =>
-    req<{ date: string; markdown: string | null; highlights: string[]; empty: boolean }>(
-      "/digests/today"
-    ),
+    req<{
+      date: string;
+      markdown: string | null;
+      html?: string | null;
+      highlights: string[];
+      source?: string | null;
+      run_id?: string | null;
+      empty: boolean;
+    }>("/digests/today"),
   recommendations: () =>
     req<{ as_of: string; items: { score: number; reason: string; item: Item }[] }>(
       "/recommendations"

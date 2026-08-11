@@ -52,12 +52,21 @@ def _ensure_content_type_column() -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_items_content_type ON items (content_type)"))
 
 
+def _ensure_digest_html_columns() -> None:
+    """Idempotent digests.html / digests.source for DBs created before HTML push."""
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE digests ADD COLUMN IF NOT EXISTS html TEXT DEFAULT ''"))
+        conn.execute(text("ALTER TABLE digests ADD COLUMN IF NOT EXISTS source VARCHAR(50)"))
+
+
 def init_db() -> None:
     from pipeline.models import Base
 
     Base.metadata.create_all(bind=engine)
     try:
         _ensure_content_type_column()
+        _ensure_digest_html_columns()
     except Exception:  # noqa: BLE001 — table may not exist yet on brand-new empty
         Base.metadata.create_all(bind=engine)
         _ensure_content_type_column()
+        _ensure_digest_html_columns()

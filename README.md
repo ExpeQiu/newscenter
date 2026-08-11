@@ -32,11 +32,25 @@ ln -s "$(pwd)/skills/newsc-summarize" ~/.openclaw/skills/newsc-summarize
 # classify / digest / recommend 同理
 ```
 
+## HTML 日报推送（CLI）
+
+OpenClaw / Hermes 可通过 `newsc-digest` 推送 HTML：
+
+```bash
+pip install -e .
+newsc-digest push --file report.html --source hermes --format json
+# 或验收
+newsc-digest push --demo --format json
+```
+
+Skill 与 manifest：[`digest-CLI/`](digest-CLI/)（`newsc-digest-push`）。
+
 ## 目录
 
 - `orchestrator/` FastAPI
 - `intelligence/` AI 契约 + worker + providers
 - `collectors/*-CLI` RSS / YouTube / Bilibili
+- `digest-CLI/` HTML 日报推送 CLI
 - `pipeline/` 模型、hash、入库
 - `apps/web/` 晨报编辑台 UI
 - `ADR/` 决策记录

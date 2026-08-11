@@ -1,0 +1,42 @@
+{
+  "$schema": "https://compo.dev/schemas/cli-agent-manifest/v1",
+  "name": "newsc-digest-push",
+  "version": "1.0.0",
+  "cli": {
+    "command": "newsc-digest",
+    "install": "pip install -e digest-CLI/",
+    "verify": "./verify.sh"
+  },
+  "commands": [
+    {
+      "id": "push",
+      "invocation": "newsc-digest push",
+      "agent_safe": true,
+      "description": "Push HTML digest to NewsC orchestrator",
+      "args": [
+        { "name": "--file", "type": "path", "required": false },
+        { "name": "--stdin", "type": "boolean", "required": false },
+        { "name": "--demo", "type": "boolean", "required": false },
+        { "name": "--date", "type": "string", "default": "today" },
+        {
+          "name": "--source",
+          "type": "enum",
+          "values": ["openclaw", "hermes", "cli", "demo"],
+          "default": "cli"
+        },
+        { "name": "--format", "type": "enum", "values": ["json", "text"], "default": "json" }
+      ],
+      "exit_codes": { "0": "ok", "2": "empty", "3": "api_error", "4": "validation" }
+    },
+    {
+      "id": "get",
+      "invocation": "newsc-digest get today",
+      "agent_safe": true,
+      "description": "Fetch today's digest JSON",
+      "args": [
+        { "name": "--format", "type": "enum", "values": ["json", "text"], "default": "json" }
+      ],
+      "exit_codes": { "0": "ok", "2": "empty", "3": "api_error" }
+    }
+  ]
+}
