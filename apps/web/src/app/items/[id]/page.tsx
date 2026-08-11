@@ -31,6 +31,7 @@ export default function ItemDetailPage() {
       </Link>
       <div className="mt-4 text-xs uppercase tracking-wide text-[var(--muted)]">
         {item.source_type}
+        {item.content_type ? ` · ${item.content_type}` : ""}
         {item.ai_category ? ` · ${item.ai_category}` : ""}
       </div>
       <h1 className="mt-2 font-[family-name:var(--font-display)] text-3xl leading-tight md:text-4xl">
@@ -44,7 +45,7 @@ export default function ItemDetailPage() {
         </p>
       </section>
 
-      {(item.embed_url || item.url) && (
+      {item.content_type === "video" && (item.embed_url || item.url) ? (
         <section className="mt-6">
           <VideoEmbed
             provider={item.embed_provider}
@@ -53,7 +54,18 @@ export default function ItemDetailPage() {
             title={item.title}
           />
         </section>
-      )}
+      ) : null}
+
+      {item.content_type === "image" && (item.thumbnail_url || item.url) ? (
+        <section className="mt-6 overflow-hidden rounded-md bg-[var(--surface)]">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={item.thumbnail_url || item.url || ""}
+            alt={item.title}
+            className="h-auto w-full object-cover"
+          />
+        </section>
+      ) : null}
 
       {item.body ? (
         <section className="mt-6">

@@ -77,6 +77,7 @@ def _item_dict(item: Item, db: Session) -> dict[str, Any]:
     return {
         "id": item.id,
         "source_type": item.source_type,
+        "content_type": getattr(item, "content_type", None) or "news",
         "url": item.url,
         "title": item.title,
         "body": item.body,
@@ -104,6 +105,7 @@ def _item_dict(item: Item, db: Session) -> dict[str, Any]:
 def list_items(
     db: Session = Depends(get_db),
     source_type: Optional[str] = None,
+    content_type: Optional[str] = None,
     category: Optional[str] = None,
     unread: Optional[bool] = None,
     starred: Optional[bool] = None,
@@ -114,6 +116,8 @@ def list_items(
     q = db.query(Item).order_by(Item.fetched_at.desc())
     if source_type:
         q = q.filter(Item.source_type == source_type)
+    if content_type:
+        q = q.filter(Item.content_type == content_type)
     if category:
         q = q.filter(Item.ai_category == category)
     items = q.offset(offset).limit(limit * 2).all()  # over-fetch then filter marks

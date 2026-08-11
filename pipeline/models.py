@@ -50,6 +50,7 @@ class Item(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     source_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("sources.id"), nullable=True)
     source_type: Mapped[str] = mapped_column(String(50), default="rss")
+    content_type: Mapped[str] = mapped_column(String(50), default="news", index=True)  # news|image|video
     url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     title: Mapped[str] = mapped_column(Text, default="")
     body: Mapped[str] = mapped_column(Text, default="")

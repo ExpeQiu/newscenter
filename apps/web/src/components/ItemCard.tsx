@@ -5,6 +5,12 @@ import { useTransition } from "react";
 import type { Item } from "@/lib/api";
 import { api } from "@/lib/api";
 
+const TYPE_LABEL: Record<string, string> = {
+  news: "新闻",
+  image: "图片",
+  video: "视频",
+};
+
 export function ItemCard({
   item,
   reason,
@@ -16,6 +22,7 @@ export function ItemCard({
 }) {
   const [pending, start] = useTransition();
   const summary = item.summary || item.body?.slice(0, 120) || "摘要生成中…";
+  const typeLabel = TYPE_LABEL[item.content_type || ""] || null;
 
   function toggle(field: "is_read" | "is_starred") {
     start(async () => {
@@ -34,8 +41,8 @@ export function ItemCard({
     >
       <div className="mb-1 flex items-center gap-2 text-xs text-[var(--muted)]">
         <span className="uppercase tracking-wide">{item.source_type}</span>
+        {typeLabel ? <span>· {typeLabel}</span> : null}
         {item.ai_category ? <span>· {item.ai_category}</span> : null}
-        {item.embed_provider ? <span>· 视频</span> : null}
       </div>
       <Link href={`/items/${item.id}`} className="block">
         <h2 className="font-[family-name:var(--font-display)] text-xl leading-snug text-[var(--ink)] group-hover:text-[var(--accent)] transition-colors">

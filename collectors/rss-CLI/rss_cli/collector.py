@@ -14,16 +14,26 @@ DEMO_ITEMS = [
         "title": "本地 AI 助手如何改变信息消费",
         "content": "随着本地运行的 LLM 与 Agent 网关普及，个人资讯站可以把摘要与分类放在设备侧完成，降低延迟并保护隐私。",
         "url": "https://example.com/news/local-ai-reading",
+        "content_type": "news",
     },
     {
         "title": "开源情报采集的模块化实践",
         "content": "每类信源独立采集器、统一 hash 去重与增量游标，是可维护情报管道的基础。财经市场波动仍需人工复核。",
         "url": "https://example.com/news/modular-collectors",
+        "content_type": "news",
     },
     {
         "title": "晨报产品的交互原则",
         "content": "摘要先行、决策成本要低、视频链接嵌入即播。首页应是今日洞察而不是监控仪表盘。",
         "url": "https://example.com/news/morning-digest-ux",
+        "content_type": "news",
+    },
+    {
+        "title": "信息流版式参考图",
+        "content": "演示图片类型条目：用于内容类型筛选「图片」。",
+        "url": "https://picsum.photos/seed/newsc/1200/675.jpg",
+        "content_type": "image",
+        "thumbnail_url": "https://picsum.photos/seed/newsc/640/360.jpg",
     },
 ]
 
@@ -37,7 +47,9 @@ def collect_demo() -> list[CollectItem]:
             content=d["content"],
             url=d["url"],
             published_at=now,
-            raw={"demo": True},
+            content_type=d.get("content_type"),
+            thumbnail_url=d.get("thumbnail_url"),
+            raw={"demo": True, "content_type": d.get("content_type")},
         )
         for d in DEMO_ITEMS
     ]

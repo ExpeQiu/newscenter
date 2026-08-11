@@ -8,7 +8,7 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from pipeline.models import AiJob, Item, PipelineRun, Source
-from pipeline.normalize import CollectItem, content_hash
+from pipeline.normalize import CollectItem, content_hash, infer_content_type
 
 logger = logging.getLogger("newsc.pipeline.ingest")
 
@@ -51,6 +51,7 @@ def upsert_items(
         row = Item(
             source_id=source_obj.id if source_obj else None,
             source_type=it.source,
+            content_type=infer_content_type(it),
             url=it.url,
             title=it.title,
             body=it.content,

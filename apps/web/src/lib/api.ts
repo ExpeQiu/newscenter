@@ -10,6 +10,7 @@ export type Marks = {
 export type Item = {
   id: string;
   source_type: string;
+  content_type?: string;
   url?: string | null;
   title: string;
   body: string;
