@@ -1,0 +1,40 @@
+[project]
+name = "newsc"
+version = "0.1.0"
+description = "Personal content aggregation — collect, AI summarize, column web"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.32.0",
+  "sqlalchemy>=2.0.36",
+  "alembic>=1.14.0",
+  "psycopg[binary]>=3.2.0",
+  "pydantic>=2.10.0",
+  "pydantic-settings>=2.6.0",
+  "httpx>=0.28.0",
+  "python-dotenv>=1.0.0",
+  "click>=8.1.0",
+  "rich>=13.9.0",
+  "feedparser>=6.0.11",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "ruff>=0.8.0"]
+
+[project.scripts]
+newsc-rss = "rss_cli.cli:main"
+newsc-youtube = "youtube_cli.cli:main"
+newsc-bilibili = "bilibili_cli.cli:main"
+
+[build-system]
+requires = ["setuptools>=75.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = [".", "collectors/rss-CLI", "collectors/youtube-CLI", "collectors/bilibili-CLI"]
+include = ["orchestrator*", "intelligence*", "pipeline*", "rss_cli*", "youtube_cli*", "bilibili_cli*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "collectors"]
+pythonpath = [".", "collectors/rss-CLI", "collectors/youtube-CLI", "collectors/bilibili-CLI"]
