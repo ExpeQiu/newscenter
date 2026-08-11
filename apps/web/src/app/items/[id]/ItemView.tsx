@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api, type Item } from "@/lib/api";
 import { VideoEmbed } from "@/components/VideoEmbed";
 import { AgentAskSheet, MarkBar } from "@/components/MarkBar";
+import { formatCount, formatPublishedAt } from "@/lib/format";
 
 export default function ItemView({ id }: { id: string }) {
   const [item, setItem] = useState<Item | null>(null);
@@ -22,8 +23,22 @@ export default function ItemView({ id }: { id: string }) {
     return <p className="text-sm text-[var(--muted)]">加载中…</p>;
   }
 
+  const meta = item.meta || {};
+  const published = formatPublishedAt(item.published_at);
+  const play = formatCount(meta.play);
+  const comment = formatCount(meta.comment);
+  const author = typeof meta.author === "string" && meta.author.trim() ? meta.author.trim() : null;
+  const duration = typeof meta.duration === "string" && meta.duration.trim() ? meta.duration.trim() : null;
+  const facts = [
+    author,
+    published,
+    play ? `${play} 播放` : null,
+    comment ? `${comment} 评论` : null,
+    duration,
+  ].filter(Boolean) as string[];
+
   return (
-    <article className="animate-fade-up mx-auto max-w-2xl">
+    <article className="animate-fade-up w-full">
       <Link href="/feed" className="text-sm text-[var(--muted)] hover:text-[var(--ink)]">
         ← 返回浏览
       </Link>
@@ -35,6 +50,16 @@ export default function ItemView({ id }: { id: string }) {
       <h1 className="mt-2 font-[family-name:var(--font-display)] text-3xl leading-tight md:text-4xl">
         {item.title}
       </h1>
+      {facts.length ? (
+        <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[var(--muted)]">
+          {facts.map((f, i) => (
+            <span key={`${f}-${i}`} className="inline-flex items-center gap-2">
+              {i > 0 ? <span aria-hidden className="opacity-40">·</span> : null}
+              {f}
+            </span>
+          ))}
+        </p>
+      ) : null}
 
       <section className="mt-6 rounded-md bg-[var(--surface)]/80 px-4 py-4">
         <h2 className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">摘要</h2>

@@ -1,0 +1,21 @@
+[project]
+name = "newsc-cli"
+version = "0.1.0"
+description = "Unified NewsC ops CLI (HTTP-only orchestrator client)"
+requires-python = ">=3.11"
+dependencies = [
+  "click>=8.1.0",
+  "httpx>=0.28.0",
+  "rich>=13.9.0",
+]
+
+[project.scripts]
+newsc = "newsc_cli.cli:main"
+
+[build-system]
+requires = ["setuptools>=75.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["newsc_cli*"]

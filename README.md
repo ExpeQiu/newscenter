@@ -40,15 +40,29 @@ ln -s "$(pwd)/skills/newsc-summarize" ~/.openclaw/skills/newsc-summarize
 curl -s http://127.0.0.1:8787/digests/vault/status | python -m json.tool
 ```
 
-可选兼容：`digest-CLI/` 仍可 `newsc-digest push` 写入库，但非主路径。见 [ADR-005](ADR/005-digest-vault-sources.md)。
+可选兼容：`digest-CLI/` 仍可 `newsc-digest push` 写入库，但非主路径；推荐 `newsc vault *` / `newsc-digest vault *`。见 [ADR-005](ADR/005-digest-vault-sources.md)、[ADR-006](ADR/006-unified-newsc-cli.md)。
+
+## 统一 CLI
+
+```bash
+pip install -e .
+newsc health
+newsc pipeline run rss
+newsc ai process --limit 20
+newsc vault status
+newsc sources list
+```
+
+详见 [ADR-006](ADR/006-unified-newsc-cli.md)、[guide/运维与Cron.md](guide/运维与Cron.md)。
 
 ## 目录
 
 - `orchestrator/` FastAPI
 - `intelligence/` AI 契约 + worker + providers
+- `newsc-CLI/` 统一运维入口 `newsc`
 - `collectors/*-CLI` RSS / YouTube / Bilibili
 - `digest-sources.yml` / `daily/` 日报来源与本地 Demo HTML
-- `digest-CLI/` 兼容旧 HTML 推送 CLI
+- `digest-CLI/` vault 只读 + 兼容 HTML 推送
 - `pipeline/` 模型、hash、入库、digest_vault
 - `apps/web/` 晨报编辑台 UI
 - `ADR/` 决策记录

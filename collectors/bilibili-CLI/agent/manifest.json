@@ -1,0 +1,21 @@
+{
+  "$schema": "https://compo.dev/schemas/cli-agent-manifest/v1",
+  "name": "newsc-bilibili",
+  "version": "1.0.0",
+  "cli": { "command": "newsc-bilibili", "verify": "./verify.sh" },
+  "commands": [
+    {
+      "id": "demo",
+      "invocation": "newsc-bilibili demo",
+      "agent_safe": true,
+      "exit_codes": { "0": "ok", "3": "api_error" }
+    },
+    {
+      "id": "fetch",
+      "invocation": "newsc-bilibili fetch",
+      "agent_safe": true,
+      "args": [{ "name": "--bvid", "type": "string", "required": true }],
+      "exit_codes": { "0": "ok", "3": "api_error", "4": "validation" }
+    }
+  ]
+}

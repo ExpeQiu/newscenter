@@ -10,7 +10,3 @@ sources:
   label: 每日知识日报
   path: /Users/expeqiu/Library/Mobile Documents/iCloud~md~obsidian/Documents/expe/Document/output/每日知识日报/每日知识日报html
   enabled: true
-- id: local-demo
-  label: 本地 Demo
-  path: daily
-  enabled: true

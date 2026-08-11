@@ -15,6 +15,7 @@ if ! curl -sf "$API/health" >/dev/null; then
   exit 0
 fi
 
+newsc-digest vault status --format json >/dev/null
 OUT=$(newsc-digest push --demo --format json)
 echo "$OUT" | python -c "import sys,json; d=json.load(sys.stdin); assert d.get('ok') is True, d; assert d.get('bytes',0)>0, d"
 echo "[digest-CLI verify] PASS"

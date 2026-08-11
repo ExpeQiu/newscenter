@@ -69,7 +69,7 @@ export default function DigestPage() {
         <h1 className="mt-2 font-[family-name:var(--font-display)] text-3xl text-[var(--ink)] md:text-4xl">
           日报
         </h1>
-        <p className="mt-3 max-w-xl text-sm text-[var(--body)]">
+        <p className="mt-3 max-w-3xl text-sm text-[var(--body)]">
           按 <code className="text-xs">digest-sources.yml</code> 定义来源目录，直接读取其中的 HTML
           并展示（参考 AgentCenter 输出物）。
         </p>

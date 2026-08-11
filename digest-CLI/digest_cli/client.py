@@ -60,6 +60,66 @@ def get_today(*, api_url: str | None = None, timeout: float = 15.0) -> dict[str,
         return r.json()
 
 
+def vault_status(*, api_url: str | None = None, timeout: float = 15.0) -> dict[str, Any]:
+    base = api_base(api_url)
+    with httpx.Client(timeout=timeout) as client:
+        r = client.get(f"{base}/digests/vault/status")
+        if r.status_code >= 400:
+            raise httpx.HTTPStatusError(
+                f"vault status failed {r.status_code}: {r.text[:500]}",
+                request=r.request,
+                response=r,
+            )
+        return r.json()
+
+
+def vault_files(
+    *,
+    source: str | None = None,
+    limit: int = 50,
+    q: str | None = None,
+    api_url: str | None = None,
+    timeout: float = 15.0,
+) -> dict[str, Any]:
+    base = api_base(api_url)
+    params: dict[str, Any] = {"limit": limit}
+    if source:
+        params["source"] = source
+    if q:
+        params["q"] = q
+    with httpx.Client(timeout=timeout) as client:
+        r = client.get(f"{base}/digests/vault/files", params=params)
+        if r.status_code >= 400:
+            raise httpx.HTTPStatusError(
+                f"vault files failed {r.status_code}: {r.text[:500]}",
+                request=r.request,
+                response=r,
+            )
+        return r.json()
+
+
+def vault_file(
+    *,
+    source: str,
+    path: str,
+    api_url: str | None = None,
+    timeout: float = 15.0,
+) -> dict[str, Any]:
+    base = api_base(api_url)
+    with httpx.Client(timeout=timeout) as client:
+        r = client.get(
+            f"{base}/digests/vault/file",
+            params={"source": source, "path": path},
+        )
+        if r.status_code >= 400:
+            raise httpx.HTTPStatusError(
+                f"vault file failed {r.status_code}: {r.text[:500]}",
+                request=r.request,
+                response=r,
+            )
+        return r.json()
+
+
 DEMO_HTML = """<article class="newsc-digest-demo">
   <h1>今日洞察 · Demo</h1>
   <p>这是 NewsC digest-CLI 的离线样例 HTML 日报，由 <code>newsc-digest push --demo</code> 推送。</p>

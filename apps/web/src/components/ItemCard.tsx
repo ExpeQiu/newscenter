@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useTransition } from "react";
 import type { Item } from "@/lib/api";
 import { api } from "@/lib/api";
+import { formatCount, formatPublishedAt } from "@/lib/format";
 
 const TYPE_LABEL: Record<string, string> = {
   news: "新闻",
@@ -23,6 +24,19 @@ export function ItemCard({
   const [pending, start] = useTransition();
   const summary = item.summary || item.body?.slice(0, 120) || "摘要生成中…";
   const typeLabel = TYPE_LABEL[item.content_type || ""] || null;
+  const meta = item.meta || {};
+  const published = formatPublishedAt(item.published_at);
+  const play = formatCount(meta.play);
+  const comment = formatCount(meta.comment);
+  const author = typeof meta.author === "string" && meta.author.trim() ? meta.author.trim() : null;
+  const duration = typeof meta.duration === "string" && meta.duration.trim() ? meta.duration.trim() : null;
+  const facts = [
+    author,
+    published,
+    play ? `${play} 播放` : null,
+    comment ? `${comment} 评论` : null,
+    duration,
+  ].filter(Boolean) as string[];
 
   function toggle(field: "is_read" | "is_starred") {
     start(async () => {
@@ -49,6 +63,16 @@ export function ItemCard({
           {item.title || "无标题"}
         </h2>
         <p className="mt-2 text-[15px] leading-relaxed text-[var(--body)] line-clamp-2">{summary}</p>
+        {facts.length ? (
+          <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--muted)]">
+            {facts.map((f, i) => (
+              <span key={`${f}-${i}`} className="inline-flex items-center gap-2">
+                {i > 0 ? <span aria-hidden className="opacity-40">·</span> : null}
+                {f}
+              </span>
+            ))}
+          </p>
+        ) : null}
         {reason ? <p className="mt-2 text-xs text-[var(--accent)]">{reason}</p> : null}
       </Link>
       <div className="mt-3 flex gap-3 text-sm">

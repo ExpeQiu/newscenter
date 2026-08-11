@@ -7,6 +7,14 @@ export type Marks = {
   note?: string | null;
 };
 
+export type ItemMeta = {
+  play?: number | string | null;
+  duration?: string | null;
+  author?: string | null;
+  comment?: number | string | null;
+  danmaku?: number | string | null;
+};
+
 export type Item = {
   id: string;
   source_type: string;
@@ -23,6 +31,7 @@ export type Item = {
   category_locked?: boolean;
   published_at?: string | null;
   fetched_at?: string | null;
+  meta?: ItemMeta;
   marks: Marks;
   tags: { name: string; origin: string }[];
 };
@@ -33,6 +42,10 @@ export type FeedSource = {
   type: string;
   enabled: boolean;
   config?: Record<string, unknown>;
+  identity_changed?: boolean;
+  purged_items?: number;
+  resync?: { inserted?: number; skipped?: number; total?: number; run_id?: string };
+  resync_error?: string;
 };
 
 export type DigestVaultSource = {

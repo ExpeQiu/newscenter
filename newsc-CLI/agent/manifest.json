@@ -1,0 +1,66 @@
+{
+  "$schema": "https://compo.dev/schemas/cli-agent-manifest/v1",
+  "name": "newsc",
+  "version": "1.0.0",
+  "cli": {
+    "command": "newsc",
+    "install": "pip install -e newsc-CLI/",
+    "verify": "./verify.sh"
+  },
+  "commands": [
+    {
+      "id": "health",
+      "invocation": "newsc health",
+      "agent_safe": true,
+      "description": "Orchestrator health check",
+      "exit_codes": { "0": "ok", "3": "api_error" }
+    },
+    {
+      "id": "pipeline-run",
+      "invocation": "newsc pipeline run",
+      "agent_safe": true,
+      "description": "Run demo or sources pipeline",
+      "args": [
+        {
+          "name": "pipeline_id",
+          "type": "enum",
+          "values": ["rss", "youtube", "bilibili", "all-demo", "sources"],
+          "required": true
+        }
+      ],
+      "exit_codes": { "0": "ok", "2": "empty", "3": "api_error" }
+    },
+    {
+      "id": "ai-process",
+      "invocation": "newsc ai process",
+      "agent_safe": true,
+      "description": "Process pending AI jobs",
+      "args": [
+        { "name": "--limit", "type": "int", "default": 20 },
+        { "name": "--digest/--no-digest", "type": "boolean", "default": true }
+      ],
+      "exit_codes": { "0": "ok", "3": "api_error" }
+    },
+    {
+      "id": "vault-status",
+      "invocation": "newsc vault status",
+      "agent_safe": true,
+      "description": "Digest vault status",
+      "exit_codes": { "0": "ok", "3": "api_error" }
+    },
+    {
+      "id": "sources-list",
+      "invocation": "newsc sources list",
+      "agent_safe": true,
+      "description": "List subscription sources",
+      "exit_codes": { "0": "ok", "2": "empty", "3": "api_error" }
+    },
+    {
+      "id": "digest-today",
+      "invocation": "newsc digest today",
+      "agent_safe": true,
+      "description": "Fetch today's digest",
+      "exit_codes": { "0": "ok", "2": "empty", "3": "api_error" }
+    }
+  ]
+}

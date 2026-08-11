@@ -12,7 +12,14 @@ import httpx
 from rich.console import Console
 
 from digest_cli import __version__
-from digest_cli.client import DEMO_HTML, get_today, push_digest
+from digest_cli.client import (
+    DEMO_HTML,
+    get_today,
+    push_digest,
+    vault_file,
+    vault_files,
+    vault_status,
+)
 
 console = Console(stderr=True)
 logger = logging.getLogger("newsc.digest_cli")
@@ -42,6 +49,80 @@ def main(ctx: click.Context, verbose: bool, api_url: str | None) -> None:
     _setup_logging(verbose)
     ctx.ensure_object(dict)
     ctx.obj["api_url"] = api_url
+
+
+@main.group("vault")
+def vault_group() -> None:
+    """Vault HTML (primary digest path; ADR-005)."""
+
+
+@vault_group.command("status")
+@click.option("--format", "fmt", type=click.Choice(["json", "text"]), default="json")
+@click.pass_context
+def vault_status_cmd(ctx: click.Context, fmt: str) -> None:
+    """GET /digests/vault/status."""
+    try:
+        data = vault_status(api_url=ctx.obj.get("api_url"))
+    except httpx.HTTPError as exc:
+        logger.error("vault_status_fail err=%s", exc)
+        console.print(f"[red]API failed[/] {exc}")
+        sys.exit(EXIT_API)
+    if fmt == "json":
+        click.echo(json.dumps(data, ensure_ascii=False))
+    else:
+        console.print(data)
+    sys.exit(EXIT_OK)
+
+
+@vault_group.command("files")
+@click.option("--source", default=None)
+@click.option("--limit", default=50, type=int)
+@click.option("-q", "query", default=None)
+@click.option("--format", "fmt", type=click.Choice(["json", "text"]), default="json")
+@click.pass_context
+def vault_files_cmd(
+    ctx: click.Context,
+    source: str | None,
+    limit: int,
+    query: str | None,
+    fmt: str,
+) -> None:
+    """GET /digests/vault/files."""
+    try:
+        data = vault_files(
+            source=source, limit=limit, q=query, api_url=ctx.obj.get("api_url")
+        )
+    except httpx.HTTPError as exc:
+        logger.error("vault_files_fail err=%s", exc)
+        console.print(f"[red]API failed[/] {exc}")
+        sys.exit(EXIT_API)
+    if fmt == "json":
+        click.echo(json.dumps(data, ensure_ascii=False))
+    else:
+        console.print(data)
+    if data.get("count", 0) == 0:
+        sys.exit(EXIT_EMPTY)
+    sys.exit(EXIT_OK)
+
+
+@vault_group.command("get")
+@click.option("--source", required=True)
+@click.option("--path", "rel_path", required=True)
+@click.option("--format", "fmt", type=click.Choice(["json", "text"]), default="json")
+@click.pass_context
+def vault_get_cmd(ctx: click.Context, source: str, rel_path: str, fmt: str) -> None:
+    """GET /digests/vault/file."""
+    try:
+        data = vault_file(source=source, path=rel_path, api_url=ctx.obj.get("api_url"))
+    except httpx.HTTPError as exc:
+        logger.error("vault_get_fail err=%s", exc)
+        console.print(f"[red]API failed[/] {exc}")
+        sys.exit(EXIT_API)
+    if fmt == "json":
+        click.echo(json.dumps(data, ensure_ascii=False))
+    else:
+        console.print(data.get("html") or "")
+    sys.exit(EXIT_OK)
 
 
 @main.command("push")

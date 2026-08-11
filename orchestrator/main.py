@@ -40,7 +40,7 @@ from pipeline.digest_vault import (  # noqa: E402
     upsert_source as vault_upsert_source,
     vault_status,
 )
-from pipeline.ingest import upsert_items  # noqa: E402
+from pipeline.ingest import purge_source_items, upsert_items  # noqa: E402
 from pipeline.models import Digest, Item, ItemTag, Mark, Recommendation, Source, Tag  # noqa: E402
 from pipeline.normalize import CollectItem  # noqa: E402
 from pipeline.settings import get_settings  # noqa: E402
@@ -83,6 +83,32 @@ def health() -> dict[str, Any]:
     }
 
 
+def _item_meta(raw: dict[str, Any] | None) -> dict[str, Any]:
+    """从采集 raw 抽出列表/详情可展示字段（白名单，不整包透出）。"""
+    if not isinstance(raw, dict) or not raw:
+        return {}
+    meta: dict[str, Any] = {}
+
+    def _take(out: str, *keys: str) -> None:
+        if out in meta:
+            return
+        for key in keys:
+            if key not in raw:
+                continue
+            val = raw[key]
+            if val is None or val == "" or val == "--":
+                continue
+            meta[out] = val
+            return
+
+    _take("play", "play", "view_count", "views")
+    _take("duration", "length", "duration")
+    _take("author", "up_name", "channel_title", "author")
+    _take("comment", "comment", "comments")
+    _take("danmaku", "video_review", "danmaku")
+    return meta
+
+
 def _item_dict(item: Item, db: Session) -> dict[str, Any]:
     mark = item.marks
     tags = []
@@ -106,6 +132,7 @@ def _item_dict(item: Item, db: Session) -> dict[str, Any]:
         "category_locked": item.category_locked,
         "published_at": item.published_at.isoformat() if item.published_at else None,
         "fetched_at": item.fetched_at.isoformat() if item.fetched_at else None,
+        "meta": _item_meta(getattr(item, "raw", None)),
         "marks": {
             "is_read": mark.is_read if mark else False,
             "is_starred": mark.is_starred if mark else False,
@@ -514,6 +541,22 @@ def _normalize_source_config(stype: str, config: dict[str, Any] | None, *, requi
     return cfg
 
 
+def _source_identity_key(stype: str, config: dict[str, Any] | None) -> tuple[str, ...]:
+    """账号/URL 等身份键：变更后应清旧条目并重采，使浏览列表同步。"""
+    cfg = config or {}
+    if stype in ("bilibili", "youtube"):
+        return ("account", str(cfg.get("account") or "").strip())
+    if stype in ("web", "rss"):
+        return ("url", str(cfg.get("url") or "").strip())
+    if stype == "social":
+        return (
+            "social",
+            str(cfg.get("platform") or "").strip().lower(),
+            str(cfg.get("handle") or "").strip().lstrip("@"),
+        )
+    return ("cfg", repr(sorted((cfg or {}).items())))
+
+
 class SourceCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     type: str = Field(..., min_length=1, max_length=50)
@@ -544,7 +587,14 @@ def create_source(body: SourceCreate, db: Session = Depends(get_db)) -> dict[str
     db.commit()
     db.refresh(row)
     logger.info("source_create id=%s type=%s name=%s", row.id, row.type, row.name)
-    return _source_dict(row)
+    out = _source_dict(row)
+    if row.enabled and row.type in ("rss", "web", "youtube", "bilibili"):
+        try:
+            out["resync"] = _collect_one_source(db, row, run_id=str(uuid4()))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("source_create_resync_fail id=%s err=%s", row.id, exc)
+            out["resync_error"] = str(exc)[:200]
+    return out
 
 
 @app.patch("/sources/{source_id}")
@@ -554,6 +604,7 @@ def update_source(source_id: str, body: SourceUpdate, db: Session = Depends(get_
         raise HTTPException(404, "source not found")
     if body.enabled is None and body.name is None and body.config is None:
         raise HTTPException(400, "nothing to update")
+    old_identity = _source_identity_key(s.type, s.config)
     if body.name is not None:
         name = body.name.strip()
         if not name:
@@ -566,20 +617,39 @@ def update_source(source_id: str, body: SourceUpdate, db: Session = Depends(get_
         if clash:
             raise HTTPException(409, "source already exists")
         s.name = name
+    identity_changed = False
     if body.config is not None:
-        s.config = _normalize_source_config(s.type, body.config, require=True)
+        new_cfg = _normalize_source_config(s.type, body.config, require=True)
+        if _source_identity_key(s.type, new_cfg) != old_identity:
+            identity_changed = True
+        s.config = new_cfg
     if body.enabled is not None:
         s.enabled = body.enabled
+    purged = 0
+    if identity_changed:
+        purged = purge_source_items(db, s.id)
+        s.cursor = None
     db.commit()
     db.refresh(s)
     logger.info(
-        "source_update id=%s enabled=%s name=%s config_keys=%s",
+        "source_update id=%s enabled=%s name=%s identity_changed=%s purged=%s config_keys=%s",
         s.id,
         s.enabled,
         s.name,
+        identity_changed,
+        purged,
         list((s.config or {}).keys()),
     )
-    return _source_dict(s)
+    out = _source_dict(s)
+    out["identity_changed"] = identity_changed
+    out["purged_items"] = purged
+    if identity_changed and s.enabled and s.type in ("rss", "web", "youtube", "bilibili"):
+        try:
+            out["resync"] = _collect_one_source(db, s, run_id=str(uuid4()))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("source_update_resync_fail id=%s err=%s", s.id, exc)
+            out["resync_error"] = str(exc)[:200]
+    return out
 
 
 @app.delete("/sources/{source_id}")
@@ -588,10 +658,10 @@ def remove_source(source_id: str, db: Session = Depends(get_db)) -> dict[str, An
     if not s:
         raise HTTPException(404, "source not found")
     logger.info("source_delete id=%s type=%s name=%s", source_id, s.type, s.name)
-    db.query(Item).filter(Item.source_id == source_id).update({Item.source_id: None})
+    purged = purge_source_items(db, source_id)
     db.delete(s)
     db.commit()
-    return {"id": source_id, "deleted": True}
+    return {"id": source_id, "deleted": True, "purged_items": purged}
 
 
 class VaultSourceBody(BaseModel):
@@ -634,10 +704,181 @@ def remove_vault_source(source_id: str) -> dict[str, Any]:
         raise HTTPException(exc.status_code, str(exc)) from exc
 
 
+class IngestItemBody(BaseModel):
+    source: str
+    title: str = ""
+    content: str = ""
+    url: Optional[str] = None
+    published_at: Optional[str] = None
+    embed_provider: Optional[str] = None
+    embed_id: Optional[str] = None
+    embed_url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    content_type: Optional[str] = None
+    raw: dict[str, Any] = Field(default_factory=dict)
+
+
+class IngestBatchBody(BaseModel):
+    items: list[IngestItemBody] = Field(default_factory=list)
+    source_name: Optional[str] = None
+    run_id: Optional[str] = None
+    enqueue_ai: bool = True
+
+
+def _collect_item_from_body(body: IngestItemBody) -> CollectItem:
+    published = None
+    if body.published_at:
+        try:
+            from datetime import datetime
+
+            published = datetime.fromisoformat(body.published_at.replace("Z", "+00:00"))
+        except ValueError:
+            published = None
+    return CollectItem(
+        source=body.source,
+        title=body.title,
+        content=body.content,
+        url=body.url,
+        published_at=published,
+        embed_provider=body.embed_provider,
+        embed_id=body.embed_id,
+        embed_url=body.embed_url,
+        thumbnail_url=body.thumbnail_url,
+        content_type=body.content_type,
+        raw=body.raw or {},
+    )
+
+
+@app.post("/ingest/batch")
+def ingest_batch(body: IngestBatchBody, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Collector CLI / Agent HTTP ingest — sole write path for external items."""
+    run_id = body.run_id or str(uuid4())
+    items = [_collect_item_from_body(it) for it in body.items]
+    logger.info(
+        "ingest_batch start run_id=%s count=%s source_name=%s",
+        run_id,
+        len(items),
+        body.source_name,
+    )
+    stats = upsert_items(
+        db,
+        items,
+        run_id=run_id,
+        source_name=body.source_name,
+        enqueue_ai=body.enqueue_ai,
+    )
+    logger.info(
+        "ingest_batch done run_id=%s inserted=%s skipped=%s",
+        stats.get("run_id"),
+        stats.get("inserted"),
+        stats.get("skipped"),
+    )
+    return stats
+
+
+def _collect_one_source(db: Session, src: Source, run_id: str) -> dict[str, Any]:
+    """采集单个启用源并入库；失败抛异常由调用方处理。"""
+    cfg = src.config or {}
+    items: list[CollectItem] = []
+    if src.type == "rss":
+        url = str(cfg.get("url") or "").strip()
+        if not url:
+            return {"inserted": 0, "skipped": 0, "total": 0, "run_id": run_id, "skipped_reason": "empty_url"}
+        from rss_cli.collector import collect_feed
+
+        items = collect_feed(url)
+    elif src.type == "web":
+        url = str(cfg.get("url") or "").strip()
+        if not url:
+            return {"inserted": 0, "skipped": 0, "total": 0, "run_id": run_id, "skipped_reason": "empty_url"}
+        from rss_cli.collector import collect_page
+
+        items = collect_page(url, source_label=src.name)
+    elif src.type == "youtube":
+        from youtube_cli.collector import collect_by_account
+
+        items = collect_by_account(str(cfg.get("account") or ""), source_label=src.name)
+    elif src.type == "bilibili":
+        from bilibili_cli.collector import collect_by_account
+
+        items = collect_by_account(str(cfg.get("account") or ""), source_label=src.name)
+    elif src.type == "social":
+        from social_cli.collector import collect_by_social
+
+        items = collect_by_social(
+            platform=str(cfg.get("platform") or "other"),
+            handle=str(cfg.get("handle") or ""),
+            source_label=src.name,
+        )
+    else:
+        return {"inserted": 0, "skipped": 0, "total": 0, "run_id": run_id, "skipped_reason": "unsupported_type"}
+
+    if not items:
+        logger.info("source_collect_empty id=%s type=%s", src.id, src.type)
+        return {"inserted": 0, "skipped": 0, "total": 0, "run_id": run_id}
+
+    child_run = f"{run_id[:8]}-{src.id[:8]}-{uuid4().hex[:8]}"
+    stats = upsert_items(
+        db,
+        items,
+        run_id=child_run,
+        source_name=src.name,
+        source_id=src.id,
+        enqueue_ai=True,
+    )
+    logger.info(
+        "source_collect_ok id=%s type=%s inserted=%s skipped=%s",
+        src.id,
+        src.type,
+        stats.get("inserted"),
+        stats.get("skipped"),
+    )
+    return stats
+
+
+def _run_enabled_sources(db: Session, run_id: str) -> dict[str, Any]:
+    """Consume enabled Source rows (rss/web/youtube/bilibili/social)."""
+    rows = db.query(Source).filter(Source.enabled.is_(True)).all()
+    total = {"inserted": 0, "skipped": 0, "total": 0, "run_id": run_id, "sources_run": 0}
+    errors: list[dict[str, str]] = []
+
+    for src in rows:
+        try:
+            stats = _collect_one_source(db, src, run_id=run_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "source_collect_fail id=%s type=%s err=%s",
+                src.id,
+                src.type,
+                exc,
+            )
+            errors.append({"source_id": src.id, "error": str(exc)[:200]})
+            continue
+
+        if stats.get("skipped_reason") == "unsupported_type":
+            continue
+        total["inserted"] += int(stats.get("inserted") or 0)
+        total["skipped"] += int(stats.get("skipped") or 0)
+        total["total"] += int(stats.get("total") or 0)
+        total["sources_run"] += 1
+
+    total["errors"] = errors
+    logger.info(
+        "pipeline_sources done run_id=%s sources_run=%s inserted=%s",
+        run_id,
+        total["sources_run"],
+        total["inserted"],
+    )
+    return {"pipeline_id": "sources", **total}
+
+
 @app.post("/pipelines/{pipeline_id}/run")
 def run_pipeline(pipeline_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     run_id = str(uuid4())
     logger.info("pipeline_run id=%s run_id=%s", pipeline_id, run_id)
+
+    if pipeline_id == "sources":
+        return _run_enabled_sources(db, run_id)
 
     if pipeline_id in ("ingest", "rss"):
         from rss_cli.collector import collect_demo

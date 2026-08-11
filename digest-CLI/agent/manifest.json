@@ -1,7 +1,7 @@
 {
   "$schema": "https://compo.dev/schemas/cli-agent-manifest/v1",
   "name": "newsc-digest-push",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "cli": {
     "command": "newsc-digest",
     "install": "pip install -e digest-CLI/",
@@ -9,10 +9,43 @@
   },
   "commands": [
     {
+      "id": "vault-status",
+      "invocation": "newsc-digest vault status",
+      "agent_safe": true,
+      "description": "Primary path: digest vault status (ADR-005)",
+      "args": [
+        { "name": "--format", "type": "enum", "values": ["json", "text"], "default": "json" }
+      ],
+      "exit_codes": { "0": "ok", "3": "api_error" }
+    },
+    {
+      "id": "vault-files",
+      "invocation": "newsc-digest vault files",
+      "agent_safe": true,
+      "description": "List vault HTML files",
+      "args": [
+        { "name": "--source", "type": "string", "required": false },
+        { "name": "--format", "type": "enum", "values": ["json", "text"], "default": "json" }
+      ],
+      "exit_codes": { "0": "ok", "2": "empty", "3": "api_error" }
+    },
+    {
+      "id": "vault-get",
+      "invocation": "newsc-digest vault get",
+      "agent_safe": true,
+      "description": "Read one vault HTML file",
+      "args": [
+        { "name": "--source", "type": "string", "required": true },
+        { "name": "--path", "type": "string", "required": true },
+        { "name": "--format", "type": "enum", "values": ["json", "text"], "default": "json" }
+      ],
+      "exit_codes": { "0": "ok", "3": "api_error" }
+    },
+    {
       "id": "push",
       "invocation": "newsc-digest push",
       "agent_safe": true,
-      "description": "Push HTML digest to NewsC orchestrator",
+      "description": "Compat: push HTML digest to DB (not primary path)",
       "args": [
         { "name": "--file", "type": "path", "required": false },
         { "name": "--stdin", "type": "boolean", "required": false },

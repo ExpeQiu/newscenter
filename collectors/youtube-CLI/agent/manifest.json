@@ -1,0 +1,21 @@
+{
+  "$schema": "https://compo.dev/schemas/cli-agent-manifest/v1",
+  "name": "newsc-youtube",
+  "version": "1.0.0",
+  "cli": { "command": "newsc-youtube", "verify": "./verify.sh" },
+  "commands": [
+    {
+      "id": "demo",
+      "invocation": "newsc-youtube demo",
+      "agent_safe": true,
+      "exit_codes": { "0": "ok", "3": "api_error" }
+    },
+    {
+      "id": "fetch",
+      "invocation": "newsc-youtube fetch",
+      "agent_safe": true,
+      "args": [{ "name": "--video-id", "type": "string", "required": true }],
+      "exit_codes": { "0": "ok", "3": "api_error", "4": "validation" }
+    }
+  ]
+}

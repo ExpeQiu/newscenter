@@ -176,8 +176,9 @@ export default function SubscribePage() {
     setLog(`${label}…`);
     setErr(null);
     try {
-      await fn();
-      setLog(`${label} 完成`);
+      const result = await fn();
+      const extra = formatSourceSync(result);
+      setLog(extra ? `${label} 完成 · ${extra}` : `${label} 完成`);
       await refresh();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -187,6 +188,22 @@ export default function SubscribePage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function formatSourceSync(result: unknown): string {
+    if (!result || typeof result !== "object") return "";
+    const r = result as FeedSource;
+    const parts: string[] = [];
+    if (typeof r.purged_items === "number" && r.purged_items > 0) {
+      parts.push(`已清旧条目 ${r.purged_items}`);
+    }
+    if (r.resync && typeof r.resync.inserted === "number") {
+      parts.push(`浏览已同步 +${r.resync.inserted}`);
+    }
+    if (r.resync_error) {
+      parts.push(`重采失败：${r.resync_error}`);
+    }
+    return parts.join("，");
   }
 
   function resetDigestForm() {
@@ -255,19 +272,11 @@ export default function SubscribePage() {
     const url = webForm.url.trim();
     if (!name || !url) return;
     void run(webForm.id ? "更新网页信源" : "添加网页信源", async () => {
-      if (webForm.id) {
-        await api.updateSource(webForm.id, {
-          name,
-          config: { url },
-        });
-      } else {
-        await api.createSource({
-          name,
-          type: webForm.kind,
-          config: { url },
-        });
-      }
+      const result = webForm.id
+        ? await api.updateSource(webForm.id, { name, config: { url } })
+        : await api.createSource({ name, type: webForm.kind, config: { url } });
       setWebForm({ id: null, name: "", url: "", kind: "web" });
+      return result;
     });
   }
 
@@ -278,12 +287,11 @@ export default function SubscribePage() {
     if (!name || !handle) return;
     void run(socialForm.id ? "更新社媒账号" : "绑定社媒账号", async () => {
       const config = { platform: socialForm.platform, handle };
-      if (socialForm.id) {
-        await api.updateSource(socialForm.id, { name, config });
-      } else {
-        await api.createSource({ name, type: "social", config });
-      }
+      const result = socialForm.id
+        ? await api.updateSource(socialForm.id, { name, config })
+        : await api.createSource({ name, type: "social", config });
       setSocialForm({ id: null, name: "", platform: "weibo", handle: "" });
+      return result;
     });
   }
 
@@ -293,19 +301,15 @@ export default function SubscribePage() {
     const account = videoForm.account.trim();
     if (!name || !account) return;
     void run(videoForm.id ? "更新视频账号" : "绑定视频账号", async () => {
-      if (videoForm.id) {
-        await api.updateSource(videoForm.id, {
-          name,
-          config: { account },
-        });
-      } else {
-        await api.createSource({
-          name,
-          type: videoForm.type,
-          config: { account },
-        });
-      }
+      const result = videoForm.id
+        ? await api.updateSource(videoForm.id, { name, config: { account } })
+        : await api.createSource({
+            name,
+            type: videoForm.type,
+            config: { account },
+          });
       setVideoForm({ id: null, name: "", type: "bilibili", account: "" });
+      return result;
     });
   }
 

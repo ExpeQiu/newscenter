@@ -1,0 +1,23 @@
+{
+  "$schema": "https://compo.dev/schemas/cli-agent-manifest/v1",
+  "name": "newsc-rss",
+  "version": "1.0.0",
+  "cli": { "command": "newsc-rss", "verify": "./verify.sh" },
+  "commands": [
+    {
+      "id": "demo",
+      "invocation": "newsc-rss demo",
+      "agent_safe": true,
+      "description": "Ingest demo RSS via HTTP",
+      "exit_codes": { "0": "ok", "3": "api_error" }
+    },
+    {
+      "id": "fetch",
+      "invocation": "newsc-rss fetch",
+      "agent_safe": true,
+      "description": "Fetch RSS feed URL",
+      "args": [{ "name": "--url", "type": "string", "required": true }],
+      "exit_codes": { "0": "ok", "2": "empty", "3": "api_error" }
+    }
+  ]
+}

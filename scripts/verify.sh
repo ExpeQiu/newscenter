@@ -14,7 +14,7 @@ set +a
 
 export AI_MOCK_MODE=true
 export AI_PROVIDER=mock
-export PYTHONPATH="$ROOT:$ROOT/collectors/rss-CLI:$ROOT/collectors/youtube-CLI:$ROOT/collectors/bilibili-CLI:$ROOT/digest-CLI:${PYTHONPATH:-}"
+export PYTHONPATH="$ROOT:$ROOT/collectors/rss-CLI:$ROOT/collectors/youtube-CLI:$ROOT/collectors/bilibili-CLI:$ROOT/collectors/social-CLI:$ROOT/digest-CLI:$ROOT/newsc-CLI:${PYTHONPATH:-}"
 
 # shellcheck disable=SC1091
 source .venv/bin/activate 2>/dev/null || {
@@ -111,6 +111,20 @@ echo "  subscribe CRUD ok"
 echo "[verify] ask"
 ASK=$(curl -sf -X POST "http://$ORCH_HOST:$ORCH_PORT/ai/ask" -H 'Content-Type: application/json' -d '{"question":"这条在说什么？"}')
 echo "$ASK" | python -c "import sys,json; d=json.load(sys.stdin); assert d.get('answer'), d"
+
+echo "[verify] newsc CLI smoke"
+newsc --format json health | python -c "import sys,json; d=json.load(sys.stdin); assert d.get('ok') is True, d"
+newsc --format json pipeline run rss >/dev/null
+newsc --format json ai process --limit 5 >/dev/null
+newsc --format json vault status | python -c "import sys,json; d=json.load(sys.stdin); assert 'readable' in d, d"
+newsc --format json pipeline run sources >/dev/null || true
+echo "  newsc CLI ok"
+
+echo "[verify] ingest/batch"
+INGEST_BATCH=$(curl -sf -X POST "http://$ORCH_HOST:$ORCH_PORT/ingest/batch" \
+  -H 'Content-Type: application/json' \
+  -d '{"items":[{"source":"rss","title":"cli-batch","content":"verify","url":"https://example.com/cli-batch-verify"}],"source_name":"verify-batch","enqueue_ai":false}')
+echo "$INGEST_BATCH" | python -c "import sys,json; d=json.load(sys.stdin); assert 'run_id' in d, d"
 
 # optional openclaw probe (non-fatal)
 if [[ "${CHECK_OPENCLAW:-0}" == "1" ]]; then

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://compo.dev/schemas/cli-agent-manifest/v1",
+  "name": "newsc-social",
+  "version": "1.0.0",
+  "cli": { "command": "newsc-social", "verify": "./verify.sh" },
+  "commands": [
+    {
+      "id": "demo",
+      "invocation": "newsc-social demo",
+      "agent_safe": true,
+      "exit_codes": { "0": "ok", "3": "api_error" }
+    },
+    {
+      "id": "fetch-x",
+      "invocation": "newsc-social fetch-x",
+      "agent_safe": true,
+      "args": [{ "name": "--handle", "type": "string", "required": true }],
+      "exit_codes": { "0": "ok", "2": "empty", "3": "api_error", "4": "validation" }
+    }
+  ]
+}
