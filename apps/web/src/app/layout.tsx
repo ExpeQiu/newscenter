@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { BottomNav, SideNav } from "@/components/Nav";
+import { AppShell } from "@/components/AppShell";
 
 export const metadata: Metadata = {
   title: "NewsC · 每日一站",
@@ -11,11 +11,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="zh-CN">
       <body className="antialiased">
-        <div className="mx-auto flex min-h-screen max-w-5xl gap-2 px-4 pb-24 pt-6 md:pb-10 md:pt-8">
-          <SideNav />
-          <main className="min-w-0 flex-1">{children}</main>
-        </div>
-        <BottomNav />
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

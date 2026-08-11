@@ -1,0 +1,16 @@
+# NewsC 日报来源（参考 AgentCenter 输出物：定义目录 → 只读 HTML）
+# path 可为绝对路径，或相对仓库根目录
+
+sources:
+- id: ai-tech
+  label: AI技术日报
+  path: /Users/expeqiu/Library/Mobile Documents/iCloud~md~obsidian/Documents/expe/Document/input/AI技术日报/技术日报html
+  enabled: true
+- id: knowledge-daily
+  label: 每日知识日报
+  path: /Users/expeqiu/Library/Mobile Documents/iCloud~md~obsidian/Documents/expe/Document/output/每日知识日报/每日知识日报html
+  enabled: true
+- id: local-demo
+  label: 本地 Demo
+  path: daily
+  enabled: true

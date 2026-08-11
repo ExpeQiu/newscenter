@@ -27,6 +27,39 @@ export type Item = {
   tags: { name: string; origin: string }[];
 };
 
+export type FeedSource = {
+  id: string;
+  name: string;
+  type: string;
+  enabled: boolean;
+  config?: Record<string, unknown>;
+};
+
+export type DigestVaultSource = {
+  id: string;
+  label: string;
+  path: string;
+  enabled: boolean;
+  readable: boolean;
+};
+
+export type DigestVaultStatus = {
+  status: string;
+  readable: boolean;
+  config_file: string;
+  message: string;
+  sources: DigestVaultSource[];
+};
+
+export type DigestVaultFile = {
+  source_id: string;
+  source_label: string;
+  name: string;
+  path: string;
+  mtime: string;
+  size: number;
+};
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -37,7 +70,15 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     cache: "no-store",
   });
   if (!res.ok) {
-    throw new Error(`${res.status} ${path}`);
+    let detail = "";
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      if (typeof body.detail === "string") detail = body.detail;
+      else if (body.detail != null) detail = JSON.stringify(body.detail);
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail || `${res.status} ${path}`);
   }
   return res.json() as Promise<T>;
 }
@@ -61,16 +102,77 @@ export const api = {
       highlights: string[];
       source?: string | null;
       run_id?: string | null;
+      vault?: { source?: string; source_label?: string; path?: string; mtime?: string } | null;
       empty: boolean;
     }>("/digests/today"),
+  digestVaultStatus: () => req<DigestVaultStatus>("/digests/vault/status"),
+  digestVaultFiles: (opts?: { source?: string; limit?: number; q?: string }) => {
+    const sp = new URLSearchParams();
+    if (opts?.source) sp.set("source", opts.source);
+    if (opts?.limit) sp.set("limit", String(opts.limit));
+    if (opts?.q) sp.set("q", opts.q);
+    const qs = sp.toString();
+    return req<{ files: DigestVaultFile[]; count: number }>(
+      `/digests/vault/files${qs ? `?${qs}` : ""}`
+    );
+  },
+  digestVaultFile: (source: string, path: string) =>
+    req<{
+      source_id: string;
+      source_label: string;
+      name: string;
+      path: string;
+      mtime: string;
+      size: number;
+      html: string;
+    }>(
+      `/digests/vault/file?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`
+    ),
   recommendations: () =>
     req<{ as_of: string; items: { score: number; reason: string; item: Item }[] }>(
       "/recommendations"
     ),
-  sources: () =>
-    req<{ sources: { id: string; name: string; type: string; enabled: boolean }[] }>("/sources"),
+  sources: () => req<{ sources: FeedSource[] }>("/sources"),
+  createSource: (body: {
+    name: string;
+    type: string;
+    config?: Record<string, unknown>;
+    enabled?: boolean;
+  }) =>
+    req<FeedSource>("/sources", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateSource: (
+    id: string,
+    body: { enabled?: boolean; name?: string; config?: Record<string, unknown> }
+  ) =>
+    req<FeedSource>(`/sources/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
   toggleSource: (id: string, enabled: boolean) =>
-    req(`/sources/${id}`, { method: "PATCH", body: JSON.stringify({ enabled }) }),
+    req<FeedSource>(`/sources/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    }),
+  deleteSource: (id: string) =>
+    req<{ id: string; deleted: boolean }>(`/sources/${id}`, { method: "DELETE" }),
+  upsertVaultSource: (body: { id: string; label: string; path: string; enabled?: boolean }) =>
+    req<DigestVaultSource>("/digests/vault/sources", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  toggleVaultSource: (id: string, enabled: boolean) =>
+    req<DigestVaultSource>(`/digests/vault/sources/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    }),
+  deleteVaultSource: (id: string) =>
+    req<{ id: string; deleted: boolean }>(
+      `/digests/vault/sources/${encodeURIComponent(id)}`,
+      { method: "DELETE" }
+    ),
   runPipeline: (id: string) => req(`/pipelines/${id}/run`, { method: "POST" }),
   processAi: () =>
     req("/ai/jobs/process", {

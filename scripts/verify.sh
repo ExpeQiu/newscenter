@@ -81,13 +81,32 @@ echo "[verify] digest today"
 DIG=$(curl -sf "http://$ORCH_HOST:$ORCH_PORT/digests/today")
 echo "$DIG" | python -c "import sys,json; d=json.load(sys.stdin); assert d.get('markdown'), d"
 
-echo "[verify] digest HTML push (CLI demo)"
-pip install -q -e "$ROOT/digest-CLI"
-PUSH=$(newsc-digest push --demo --format json)
-echo "  $PUSH"
-echo "$PUSH" | python -c "import sys,json; d=json.load(sys.stdin); assert d.get('ok') is True and d.get('bytes',0)>0, d"
-DIG2=$(curl -sf "http://$ORCH_HOST:$ORCH_PORT/digests/today")
-echo "$DIG2" | python -c "import sys,json; d=json.load(sys.stdin); assert d.get('html'), d; assert 'Demo' in (d.get('html') or ''), d"
+echo "[verify] digest vault (sources → HTML)"
+STAT=$(curl -sf "http://$ORCH_HOST:$ORCH_PORT/digests/vault/status")
+echo "  $STAT"
+echo "$STAT" | python -c "import sys,json; d=json.load(sys.stdin); assert d.get('readable') is True, d"
+FILES=$(curl -sf "http://$ORCH_HOST:$ORCH_PORT/digests/vault/files?source=local-demo&limit=5")
+echo "$FILES" | python -c "import sys,json; d=json.load(sys.stdin); assert d.get('count',0)>=1, d"
+FILE=$(curl -sf "http://$ORCH_HOST:$ORCH_PORT/digests/vault/file?source=local-demo&path=demo.html")
+echo "$FILE" | python -c "import sys,json; d=json.load(sys.stdin); assert 'Demo' in (d.get('html') or ''), d"
+
+echo "[verify] subscribe sources CRUD"
+SUB_WEB=$(curl -sf -X POST "http://$ORCH_HOST:$ORCH_PORT/sources" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"verify-web","type":"web","config":{"url":"https://example.com/verify"}}')
+SUB_ID=$(echo "$SUB_WEB" | python -c "import sys,json; print(json.load(sys.stdin)['id'])")
+curl -sf -X PATCH "http://$ORCH_HOST:$ORCH_PORT/sources/$SUB_ID" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"verify-web-2","config":{"url":"https://example.com/verify2"}}' >/dev/null
+curl -sf -X PATCH "http://$ORCH_HOST:$ORCH_PORT/sources/$SUB_ID" \
+  -H 'Content-Type: application/json' \
+  -d '{"enabled":false}' >/dev/null
+curl -sf -X DELETE "http://$ORCH_HOST:$ORCH_PORT/sources/$SUB_ID" >/dev/null
+curl -sf -X POST "http://$ORCH_HOST:$ORCH_PORT/digests/vault/sources" \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"verify-tmp","label":"verify","path":"daily","enabled":true}' >/dev/null
+curl -sf -X DELETE "http://$ORCH_HOST:$ORCH_PORT/digests/vault/sources/verify-tmp" >/dev/null
+echo "  subscribe CRUD ok"
 
 echo "[verify] ask"
 ASK=$(curl -sf -X POST "http://$ORCH_HOST:$ORCH_PORT/ai/ask" -H 'Content-Type: application/json' -d '{"question":"这条在说什么？"}')

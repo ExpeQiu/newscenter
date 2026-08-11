@@ -32,29 +32,27 @@ ln -s "$(pwd)/skills/newsc-summarize" ~/.openclaw/skills/newsc-summarize
 # classify / digest / recommend 同理
 ```
 
-## HTML 日报推送（CLI）
+## HTML 日报（目录直读）
 
-OpenClaw / Hermes 可通过 `newsc-digest` 推送 HTML：
+在 [`digest-sources.yml`](digest-sources.yml) 定义来源目录，Web「日报」页直接读取其中的 HTML（参考 AgentCenter 输出物）：
 
 ```bash
-pip install -e .
-newsc-digest push --file report.html --source hermes --format json
-# 或验收
-newsc-digest push --demo --format json
+curl -s http://127.0.0.1:8787/digests/vault/status | python -m json.tool
 ```
 
-Skill 与 manifest：[`digest-CLI/`](digest-CLI/)（`newsc-digest-push`）。
+可选兼容：`digest-CLI/` 仍可 `newsc-digest push` 写入库，但非主路径。见 [ADR-005](ADR/005-digest-vault-sources.md)。
 
 ## 目录
 
 - `orchestrator/` FastAPI
 - `intelligence/` AI 契约 + worker + providers
 - `collectors/*-CLI` RSS / YouTube / Bilibili
-- `digest-CLI/` HTML 日报推送 CLI
-- `pipeline/` 模型、hash、入库
+- `digest-sources.yml` / `daily/` 日报来源与本地 Demo HTML
+- `digest-CLI/` 兼容旧 HTML 推送 CLI
+- `pipeline/` 模型、hash、入库、digest_vault
 - `apps/web/` 晨报编辑台 UI
 - `ADR/` 决策记录
 
 ## 演示流
 
-设置页「采集 Demo」→「处理 AI Jobs」→ 今日页查看日报与荐读 → 详情内嵌播放视频。
+设置页「采集 Demo」→「处理 AI Jobs」→ 今日页查看洞察与荐读 →「日报」页浏览目录 HTML。

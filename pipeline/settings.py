@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     openclaw_gateway_url: str = "http://127.0.0.1:18789"
     openclaw_token: str = ""
 
+    # 日报 HTML vault（相对仓库根或绝对路径；见 digest-sources.yml）
+    digest_sources_file: str = "digest-sources.yml"
+
     def resolved_provider(self) -> str:
         if self.ai_mock_mode:
             return "mock"

@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -25,7 +26,20 @@ from intelligence.worker import (  # noqa: E402
     process_pending,
 )
 from pipeline.db import get_db, init_db  # noqa: E402
-from pipeline.digest_sanitize import sanitize_digest_html  # noqa: E402
+from pipeline.digest_sanitize import (  # noqa: E402
+    sanitize_digest_html,
+    sanitize_digest_html_document,
+)
+from pipeline.digest_vault import (  # noqa: E402
+    DigestVaultError,
+    delete_source as vault_delete_source,
+    fmt_mtime,
+    list_html_files,
+    read_html_file,
+    set_source_enabled as vault_set_enabled,
+    upsert_source as vault_upsert_source,
+    vault_status,
+)
 from pipeline.ingest import upsert_items  # noqa: E402
 from pipeline.models import Digest, Item, ItemTag, Mark, Recommendation, Source, Tag  # noqa: E402
 from pipeline.normalize import CollectItem  # noqa: E402
@@ -237,35 +251,128 @@ class DigestPushBody(BaseModel):
     run_id: Optional[str] = None
 
 
+def _raise_vault(exc: DigestVaultError) -> None:
+    raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@app.get("/digests/vault/status")
+def digests_vault_status() -> dict[str, Any]:
+    return vault_status()
+
+
+@app.get("/digests/vault/files")
+def digests_vault_files(
+    source: Optional[str] = Query(None, description="来源 id；空=全部"),
+    limit: int = Query(50, ge=1, le=200),
+    q: Optional[str] = Query(None, description="文件名/路径关键词"),
+) -> dict[str, Any]:
+    try:
+        entries = list_html_files(source, limit=limit, q=q)
+    except DigestVaultError as exc:
+        _raise_vault(exc)
+        return {"files": [], "count": 0}
+    files = [
+        {
+            "source_id": e.source_id,
+            "source_label": e.source_label,
+            "name": e.name,
+            "path": e.path,
+            "mtime": fmt_mtime(e.mtime),
+            "size": e.size,
+        }
+        for e in entries
+    ]
+    return {"files": files, "count": len(files)}
+
+
+@app.get("/digests/vault/file")
+def digests_vault_file(
+    source: str = Query(..., min_length=1, description="来源 id"),
+    path: str = Query(..., min_length=1, description="相对来源目录的文件路径"),
+) -> dict[str, Any]:
+    try:
+        f = read_html_file(source, path)
+    except DigestVaultError as exc:
+        _raise_vault(exc)
+        raise
+    # 完整文档预览：保留 style（iframe 沙箱禁脚本）
+    html = sanitize_digest_html_document(f.content)
+    return {
+        "source_id": f.source_id,
+        "source_label": f.source_label,
+        "name": f.name,
+        "path": f.path,
+        "mtime": fmt_mtime(f.mtime),
+        "size": f.size,
+        "html": html,
+    }
+
+
+@app.get("/digests/vault/raw", response_class=HTMLResponse)
+def digests_vault_raw(
+    source: str = Query(..., min_length=1, description="来源 id"),
+    path: str = Query(..., min_length=1, description="相对来源目录的文件路径"),
+) -> HTMLResponse:
+    """按 text/html 返回完整日报，供 iframe src 直接渲染。"""
+    try:
+        f = read_html_file(source, path)
+    except DigestVaultError as exc:
+        _raise_vault(exc)
+        raise
+    html = sanitize_digest_html_document(f.content)
+    logger.info(
+        "digest_vault raw source=%s path=%s bytes=%d",
+        f.source_id,
+        f.path,
+        len(html.encode("utf-8")),
+    )
+    return HTMLResponse(content=html, media_type="text/html; charset=utf-8")
+
+
 @app.get("/digests/today")
 def digest_today(db: Session = Depends(get_db)) -> dict[str, Any]:
+    """今日洞察：DB markdown（AI）+ vault 最新 HTML（若有）。"""
     d = date.today()
     row = db.query(Digest).filter(Digest.digest_date == d).first()
-    if not row:
-        return {
-            "date": d.isoformat(),
-            "markdown": None,
-            "html": None,
-            "highlights": [],
-            "source": None,
-            "run_id": None,
-            "empty": True,
-        }
-    html = (row.html or "").strip() or None
-    md = (row.markdown or "").strip() or None
+    md = ((row.markdown or "").strip() or None) if row else None
+    highlights = (row.highlights or []) if row else []
+    db_html = ((row.html or "").strip() or None) if row else None
+    db_source = row.source if row else None
+    db_run = row.run_id if row else None
+
+    vault_html = None
+    vault_meta: dict[str, Any] = {}
+    try:
+        latest = list_html_files(limit=1)
+        if latest:
+            f = read_html_file(latest[0].source_id, latest[0].path)
+            vault_html = sanitize_digest_html_document(f.content)
+            vault_meta = {
+                "source": f.source_id,
+                "source_label": f.source_label,
+                "path": f.path,
+                "mtime": fmt_mtime(f.mtime),
+            }
+    except DigestVaultError as exc:
+        logger.warning("digest_today vault skip: %s", exc)
+
+    html = vault_html or db_html
+    source = vault_meta.get("source") or db_source
     return {
         "date": d.isoformat(),
         "markdown": md,
         "html": html,
-        "highlights": row.highlights or [],
-        "source": row.source,
-        "run_id": row.run_id,
+        "highlights": highlights,
+        "source": source,
+        "run_id": db_run,
+        "vault": vault_meta or None,
         "empty": not (html or md),
     }
 
 
 @app.post("/digests/push")
 def digest_push(body: DigestPushBody, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """兼容旧 CLI 推送；主路径已改为 vault 直读 HTML。"""
     html_raw = (body.html or "").strip()
     markdown = (body.markdown or "").strip()
     if not html_raw and not markdown:
@@ -359,25 +466,172 @@ def list_sources(db: Session = Depends(get_db)) -> dict[str, Any]:
                 "name": s.name,
                 "type": s.type,
                 "enabled": s.enabled,
-                "config": s.config,
+                "config": s.config or {},
             }
             for s in rows
         ]
     }
 
 
-class SourceToggle(BaseModel):
-    enabled: bool
+ALLOWED_SOURCE_TYPES = frozenset({"web", "rss", "social", "bilibili", "youtube"})
+ALLOWED_SOCIAL_PLATFORMS = frozenset({"weibo", "x", "xiaohongshu", "other"})
+
+
+def _source_dict(row: Source) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "name": row.name,
+        "type": row.type,
+        "enabled": row.enabled,
+        "config": row.config or {},
+    }
+
+
+def _normalize_source_config(stype: str, config: dict[str, Any] | None, *, require: bool) -> dict[str, Any]:
+    """按类型规范化 config；require=True 时校验必填字段。"""
+    cfg = dict(config or {})
+    if stype in ("web", "rss"):
+        url = str(cfg.get("url") or "").strip()
+        if require and not url:
+            raise HTTPException(400, "config.url required")
+        return {"url": url} if url else {}
+    if stype == "social":
+        platform = str(cfg.get("platform") or "other").strip().lower() or "other"
+        if platform not in ALLOWED_SOCIAL_PLATFORMS:
+            platform = "other"
+        handle = str(cfg.get("handle") or "").strip().lstrip("@")
+        if require and not handle:
+            raise HTTPException(400, "config.handle required")
+        out: dict[str, Any] = {"platform": platform}
+        if handle:
+            out["handle"] = handle
+        return out if handle or not require else {}
+    if stype in ("bilibili", "youtube"):
+        account = str(cfg.get("account") or "").strip()
+        if require and not account:
+            raise HTTPException(400, "config.account required")
+        return {"account": account} if account else {}
+    return cfg
+
+
+class SourceCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    type: str = Field(..., min_length=1, max_length=50)
+    config: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class SourceUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    config: Optional[dict[str, Any]] = None
+
+
+@app.post("/sources")
+def create_source(body: SourceCreate, db: Session = Depends(get_db)) -> dict[str, Any]:
+    stype = body.type.strip().lower()
+    if stype not in ALLOWED_SOURCE_TYPES:
+        raise HTTPException(400, f"unsupported type: {stype}")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "name required")
+    existing = db.query(Source).filter(Source.name == name, Source.type == stype).first()
+    if existing:
+        raise HTTPException(409, "source already exists")
+    config = _normalize_source_config(stype, body.config, require=True)
+    row = Source(name=name, type=stype, config=config, enabled=body.enabled)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    logger.info("source_create id=%s type=%s name=%s", row.id, row.type, row.name)
+    return _source_dict(row)
 
 
 @app.patch("/sources/{source_id}")
-def toggle_source(source_id: str, body: SourceToggle, db: Session = Depends(get_db)) -> dict[str, Any]:
+def update_source(source_id: str, body: SourceUpdate, db: Session = Depends(get_db)) -> dict[str, Any]:
     s = db.query(Source).filter(Source.id == source_id).first()
     if not s:
         raise HTTPException(404, "source not found")
-    s.enabled = body.enabled
+    if body.enabled is None and body.name is None and body.config is None:
+        raise HTTPException(400, "nothing to update")
+    if body.name is not None:
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(400, "name required")
+        clash = (
+            db.query(Source)
+            .filter(Source.name == name, Source.type == s.type, Source.id != s.id)
+            .first()
+        )
+        if clash:
+            raise HTTPException(409, "source already exists")
+        s.name = name
+    if body.config is not None:
+        s.config = _normalize_source_config(s.type, body.config, require=True)
+    if body.enabled is not None:
+        s.enabled = body.enabled
     db.commit()
-    return {"id": s.id, "enabled": s.enabled}
+    db.refresh(s)
+    logger.info(
+        "source_update id=%s enabled=%s name=%s config_keys=%s",
+        s.id,
+        s.enabled,
+        s.name,
+        list((s.config or {}).keys()),
+    )
+    return _source_dict(s)
+
+
+@app.delete("/sources/{source_id}")
+def remove_source(source_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    s = db.query(Source).filter(Source.id == source_id).first()
+    if not s:
+        raise HTTPException(404, "source not found")
+    logger.info("source_delete id=%s type=%s name=%s", source_id, s.type, s.name)
+    db.query(Item).filter(Item.source_id == source_id).update({Item.source_id: None})
+    db.delete(s)
+    db.commit()
+    return {"id": source_id, "deleted": True}
+
+
+class VaultSourceBody(BaseModel):
+    id: str = Field(..., min_length=1, max_length=64)
+    label: str = Field(..., min_length=1, max_length=200)
+    path: str = Field(..., min_length=1, max_length=2000)
+    enabled: bool = True
+
+
+class VaultSourceToggle(BaseModel):
+    enabled: bool
+
+
+@app.post("/digests/vault/sources")
+def upsert_vault_source(body: VaultSourceBody) -> dict[str, Any]:
+    try:
+        return vault_upsert_source(
+            source_id=body.id,
+            label=body.label,
+            path=body.path,
+            enabled=body.enabled,
+        )
+    except DigestVaultError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
+
+
+@app.patch("/digests/vault/sources/{source_id}")
+def toggle_vault_source(source_id: str, body: VaultSourceToggle) -> dict[str, Any]:
+    try:
+        return vault_set_enabled(source_id, body.enabled)
+    except DigestVaultError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
+
+
+@app.delete("/digests/vault/sources/{source_id}")
+def remove_vault_source(source_id: str) -> dict[str, Any]:
+    try:
+        return vault_delete_source(source_id)
+    except DigestVaultError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
 
 
 @app.post("/pipelines/{pipeline_id}/run")
