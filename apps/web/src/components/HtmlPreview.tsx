@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { API_BASE } from "@/lib/api";
 
 interface HtmlPreviewProps {
@@ -41,7 +41,26 @@ function extractBodyInner(html: string): string {
   return (m ? m[1] : html).trim();
 }
 
-/** 页内渲染 HTML，支持划选加入笔记 */
+function extractStyleBlocks(html: string): string[] {
+  const out: string[] = [];
+  const re = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) != null) {
+    if (m[1]?.trim()) out.push(m[1]);
+  }
+  return out;
+}
+
+/** 将文档级 html/body 选择器改写到 Shadow 内根节点，保留原 HTML 排版 */
+function scopeDocumentCss(css: string, scope: string): string {
+  return css
+    .replace(/(^|[,{}\s>+~])html\b/gi, `$1${scope}`)
+    .replace(/(^|[,{}\s>+~])body\b/gi, `$1${scope}`);
+}
+
+const DIGEST_SCOPE = ".digest-html-root";
+
+/** 页内渲染 HTML：Shadow DOM 保留原 <style>，并支持划选加入笔记 */
 export function SelectableDigestHtml({
   html,
   title,
@@ -51,13 +70,44 @@ export function SelectableDigestHtml({
   title?: string;
   className?: string;
 }) {
-  const safe = useMemo(() => extractBodyInner(stripActiveHtml(html)), [html]);
-  if (!safe) return null;
+  const hostRef = useRef<HTMLDivElement>(null);
+  const payload = useMemo(() => {
+    const cleaned = stripActiveHtml(html);
+    const styles = extractStyleBlocks(html)
+      .map((css) => scopeDocumentCss(css, DIGEST_SCOPE))
+      .join("\n");
+    const body = extractBodyInner(cleaned);
+    return { styles, body };
+  }, [html]);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
+    if (!payload.body) {
+      shadow.innerHTML = "";
+      return;
+    }
+    shadow.innerHTML = `
+<style>
+  :host { display: block; background: #fff; color: #333; }
+  ${payload.styles}
+</style>
+<div class="digest-html-root">${payload.body}</div>`;
+    console.info(
+      "[digest] selectable_html styles=%d body_chars=%d title=%s",
+      payload.styles.length,
+      payload.body.length,
+      title || ""
+    );
+  }, [payload, title]);
+
+  if (!payload.body) return null;
   return (
-    <article
+    <div
+      ref={hostRef}
       title={title}
-      className={`prose-digest min-h-[12rem] rounded-md border border-[var(--line)] bg-white px-4 py-5 text-[15px] leading-relaxed text-[var(--body)] ${className}`.trim()}
-      dangerouslySetInnerHTML={{ __html: safe }}
+      className={`min-h-[12rem] rounded-md border border-[var(--line)] bg-white ${className}`.trim()}
     />
   );
 }

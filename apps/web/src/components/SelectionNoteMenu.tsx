@@ -18,13 +18,33 @@ type MenuState = {
   mode: "pick" | "create";
 };
 
+/** 判断节点是否在 root 内（含 open Shadow DOM） */
+function nodeInside(root: HTMLElement, node: Node | null): boolean {
+  let cur: Node | null = node;
+  while (cur) {
+    if (cur === root) return true;
+    const rn = cur.getRootNode();
+    if (rn instanceof ShadowRoot) {
+      cur = rn.host;
+      continue;
+    }
+    if (cur.parentNode) {
+      cur = cur.parentNode;
+      continue;
+    }
+    break;
+  }
+  return false;
+}
+
 function selectedTextIn(root: HTMLElement | null): string {
+  if (!root) return "";
   const sel = window.getSelection();
   if (!sel || sel.isCollapsed || !sel.rangeCount) return "";
   const text = sel.toString().trim();
-  if (!text || !root) return "";
+  if (!text) return "";
   const anchor = sel.anchorNode;
-  if (!anchor || !root.contains(anchor)) return "";
+  if (!anchor || !nodeInside(root, anchor)) return "";
   return text;
 }
 

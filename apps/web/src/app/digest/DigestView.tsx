@@ -83,7 +83,7 @@ export default function DigestPage() {
         </h1>
         <p className="mt-3 max-w-3xl text-sm text-[var(--body)]">
           按 <code className="text-xs">digest-sources.yml</code> 定义来源目录，直接读取其中的 HTML
-          并展示。划选文字后右键可加入笔记。
+          并按原文样式展示。划选文字后右键可加入笔记。
         </p>
       </header>
 
