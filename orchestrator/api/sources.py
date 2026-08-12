@@ -9,6 +9,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from orchestrator.account_link import canonicalize_social, canonicalize_video
 from pipeline.db import get_db
@@ -227,11 +228,17 @@ def run_enabled_sources(db: Session, run_id: str) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
 
     for src in rows:
-        cfg = src.config or {}
+        cfg = dict(src.config or {})
         interval = canonicalize_refresh_interval(
             cfg.get("refresh_interval"),
             stype=src.type,
         )
+        # 旧源可能缺字段：写回规范值，便于 UI / 云端一致
+        if cfg.get("refresh_interval") != interval:
+            cfg["refresh_interval"] = interval
+            src.config = cfg
+            flag_modified(src, "config")
+            db.add(src)
         if not source_is_due(refresh_interval=interval, cursor=src.cursor, now=now):
             total["sources_deferred"] += 1
             logger.info(
@@ -262,6 +269,7 @@ def run_enabled_sources(db: Session, run_id: str) -> dict[str, Any]:
         total["sources_run"] += 1
 
     total["errors"] = errors
+    db.commit()
     logger.info(
         "pipeline_sources done run_id=%s sources_run=%s deferred=%s inserted=%s",
         run_id,

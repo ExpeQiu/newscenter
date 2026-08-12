@@ -53,10 +53,13 @@ def digests_vault_status(db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 @router.post("/digests/vault/ingest")
-def digests_vault_ingest(db: Session = Depends(get_db)) -> dict[str, Any]:
-    """扫描本机目录写入 digest_vault_*（推云前调用）。"""
+def digests_vault_ingest(
+    db: Session = Depends(get_db),
+    force: bool = Query(False, description="忽略 refresh_interval，全量扫描"),
+) -> dict[str, Any]:
+    """扫描本机目录写入 digest_vault_*（定时尊重周期；推云前可 force）。"""
     try:
-        return sync_vault_to_db(db)
+        return sync_vault_to_db(db, force=force)
     except DigestVaultError as exc:
         raise_vault(exc)
         raise

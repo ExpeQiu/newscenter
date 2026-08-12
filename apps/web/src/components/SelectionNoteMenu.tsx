@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  DIGEST_NOTE_EVENT,
+  type DigestNoteDetail,
+} from "@/components/HtmlPreview";
 import { api, type NoteColumn } from "@/lib/api";
 
 export type NoteSourceMeta = {
@@ -167,13 +171,31 @@ export function SelectionNoteMenu({
       setFloatQuote(quote || null);
     };
 
+    /** Shadow DOM 日报：子组件派发跨边界事件 */
+    const onDigestNote = (ev: Event) => {
+      const detail = (ev as CustomEvent<DigestNoteDetail>).detail;
+      if (!detail?.quote) return;
+      ev.preventDefault();
+      const coarse =
+        typeof window !== "undefined" &&
+        window.matchMedia &&
+        window.matchMedia("(pointer: coarse)").matches;
+      if (coarse) {
+        setFloatQuote(detail.quote);
+        return;
+      }
+      void openPicker(detail.quote, detail.x, detail.y);
+    };
+
     el.addEventListener("contextmenu", onContext);
     el.addEventListener("mouseup", onMouseUp);
     el.addEventListener("touchend", onMouseUp);
+    el.addEventListener(DIGEST_NOTE_EVENT, onDigestNote);
     return () => {
       el.removeEventListener("contextmenu", onContext);
       el.removeEventListener("mouseup", onMouseUp);
       el.removeEventListener("touchend", onMouseUp);
+      el.removeEventListener(DIGEST_NOTE_EVENT, onDigestNote);
     };
   }, [openPicker]);
 

@@ -153,7 +153,7 @@ def _write_cloud_env(values: dict[str, str]) -> None:
         f"LOCAL_DATABASE_URL={values.get('LOCAL_DATABASE_URL', '')}",
         f"PUSH_SCHEDULE_ENABLED={values.get('PUSH_SCHEDULE_ENABLED', '0')}",
         f"PUSH_SCHEDULE_MODE={values.get('PUSH_SCHEDULE_MODE', 'daily')}",
-        f"PUSH_SCHEDULE_TIMES={values.get('PUSH_SCHEDULE_TIMES', '08:25,12:15,18:25,21:15')}",
+        f"PUSH_SCHEDULE_TIMES={values.get('PUSH_SCHEDULE_TIMES', '09:00,12:00,16:00,20:00')}",
         f"PUSH_SCHEDULE_INTERVAL_HOURS={values.get('PUSH_SCHEDULE_INTERVAL_HOURS', '6')}",
         "",
     ]
@@ -202,7 +202,11 @@ def _apply_source_delete(local: Session, payload: dict[str, Any]) -> dict[str, A
 
 
 def _apply_vault_source(payload: dict[str, Any], *, delete: bool = False) -> dict[str, Any]:
-    from pipeline.digest_vault import vault_delete_source, vault_set_enabled, vault_upsert_source
+    from pipeline.digest_vault import (
+        delete_source as vault_delete_source,
+        set_source_enabled as vault_set_enabled,
+        upsert_source as vault_upsert_source,
+    )
 
     sid = str(payload.get("id") or "").strip()
     if not sid:
@@ -244,7 +248,7 @@ def _apply_sync_config(payload: dict[str, Any]) -> dict[str, Any]:
         "PUSH_SCHEDULE_MODE": str(payload.get("push_schedule_mode") or "daily"),
         "PUSH_SCHEDULE_TIMES": ",".join(payload.get("push_schedule_times") or [])
         or existing.get("PUSH_SCHEDULE_TIMES")
-        or "08:25,12:15,18:25,21:15",
+        or "09:00,12:00,16:00,20:00",
         "PUSH_SCHEDULE_INTERVAL_HOURS": str(payload.get("push_schedule_interval_hours") or 6),
     }
     if isinstance(payload.get("push_schedule_times"), str):

@@ -3,7 +3,7 @@
 # 配置来自 .env.cloud.local：
 #   PUSH_SCHEDULE_ENABLED=1|0
 #   PUSH_SCHEDULE_MODE=daily|interval
-#   PUSH_SCHEDULE_TIMES=08:25,12:15,18:25,21:15   # daily
+#   PUSH_SCHEDULE_TIMES=09:00,12:00,16:00,20:00   # daily
 #   PUSH_SCHEDULE_INTERVAL_HOURS=6               # interval
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -18,7 +18,7 @@ ACTION="${1:-install}"
 
 ENABLED="${PUSH_SCHEDULE_ENABLED:-1}"
 MODE="${PUSH_SCHEDULE_MODE:-daily}"
-TIMES="${PUSH_SCHEDULE_TIMES:-08:25,12:15,18:25,21:15}"
+TIMES="${PUSH_SCHEDULE_TIMES:-09:00,12:00,16:00,20:00}"
 INTERVAL_H="${PUSH_SCHEDULE_INTERVAL_HOURS:-6}"
 
 uninstall() {

@@ -25,6 +25,7 @@ from pipeline.digest_vault import (
     load_sources,
 )
 from pipeline.models import DigestVaultFile, DigestVaultSource
+from pipeline.refresh_interval import canonicalize_refresh_interval, source_is_due
 
 logger = logging.getLogger(__name__)
 
@@ -171,13 +172,17 @@ def _walk_html(src: DigestSource) -> list[tuple[str, Path, float, int]]:
     return found
 
 
-def sync_vault_to_db(db: Session) -> dict[str, Any]:
-    """扫描 yaml 来源目录，写入 digest_vault_* 表。"""
+def sync_vault_to_db(db: Session, *, force: bool = False) -> dict[str, Any]:
+    """扫描 yaml 来源目录，写入 digest_vault_* 表。
+
+    force=False 时按各源 refresh_interval + synced_at 跳过未到期来源。
+    """
     t0 = time.perf_counter()
     sources = load_sources()
     upserted = 0
     deleted = 0
     skipped = 0
+    deferred = 0
     errors: list[str] = []
 
     for src in sources:
@@ -193,6 +198,22 @@ def sync_vault_to_db(db: Session) -> dict[str, Any]:
         if not src.enabled:
             row.file_count = db_file_count(db, src.id)
             row.synced_at = now
+            continue
+
+        interval = canonicalize_refresh_interval(
+            getattr(src, "refresh_interval", None),
+            stype="digest",
+        )
+        cursor = {"last_fetched_at": row.synced_at.isoformat()} if row.synced_at else None
+        if not force and not source_is_due(refresh_interval=interval, cursor=cursor, now=now):
+            deferred += 1
+            skipped += 1
+            logger.info(
+                "vault_store deferred source=%s interval=%s last=%s",
+                src.id,
+                interval,
+                row.synced_at,
+            )
             continue
 
         if not src.path.is_dir():
@@ -268,15 +289,19 @@ def sync_vault_to_db(db: Session) -> dict[str, Any]:
         "upserted": upserted,
         "deleted": deleted,
         "skipped": skipped,
+        "deferred": deferred,
+        "force": force,
         "errors": errors[:20],
         "elapsed_ms": round(elapsed_ms, 1),
     }
     logger.info(
-        "vault_store sync sources=%d upserted=%d deleted=%d skipped=%d elapsed_ms=%.1f",
+        "vault_store sync sources=%d upserted=%d deleted=%d skipped=%d deferred=%d force=%s elapsed_ms=%.1f",
         len(sources),
         upserted,
         deleted,
         skipped,
+        deferred,
+        force,
         elapsed_ms,
     )
     return result

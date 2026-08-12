@@ -131,7 +131,7 @@ export default function SettingsPage() {
     local_database_url: "postgresql://qiubin@/newsc?host=/tmp",
     push_schedule_enabled: false,
     push_schedule_mode: "daily",
-    push_schedule_times: "08:25,12:15,18:25,21:15",
+    push_schedule_times: "09:00,12:00,16:00,20:00",
     push_schedule_interval_hours: "6",
   });
   const [configured, setConfigured] = useState(false);
@@ -207,7 +207,7 @@ export default function SettingsPage() {
       .map((t) => t.trim())
       .filter(Boolean);
     if (form.push_schedule_enabled && form.push_schedule_mode === "daily" && times.length === 0) {
-      setLog("每日定点至少填写一个时刻（如 08:25）");
+      setLog("每日定点至少填写一个时刻（如 09:00）");
       return;
     }
     void run("保存云端同步配置", () =>
@@ -377,7 +377,7 @@ export default function SettingsPage() {
               ) : (
                 <Field
                   label="推送时刻"
-                  hint="逗号分隔，如 08:25,12:15,18:25,21:15"
+                  hint="逗号分隔，如 09:00,12:00,16:00,20:00"
                 >
                   <input
                     className={inputCls}
@@ -386,7 +386,7 @@ export default function SettingsPage() {
                     onChange={(e) =>
                       setForm((f) => ({ ...f, push_schedule_times: e.target.value }))
                     }
-                    placeholder="08:25,12:15,18:25,21:15"
+                    placeholder="09:00,12:00,16:00,20:00"
                     autoComplete="off"
                   />
                 </Field>

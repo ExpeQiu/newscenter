@@ -11,7 +11,22 @@ newsc --format json ai process --limit 50
 newsc --format json vault status
 ```
 
-订阅源可在 Web「订阅」页或 CLI 设定 `refresh_interval`（`15m`…`1d` / `manual`）。Cron 宜以最短周期触发（如每 15 分钟），管道会按源级周期决定是否真正采集；`manual` 仅在创建/改源时触发重采，定时管道会跳过。
+订阅源可在 Web「订阅」页或 CLI 设定 `refresh_interval`（`15m`…`1d` / `manual`）。本机 LaunchAgent 每 15 分钟触发：
+
+1. `POST /pipelines/sources/run` — 网页 / RSS / 社媒 / 视频按源级周期采集  
+2. `POST /digests/vault/ingest` — 日报路径按源级周期入库（推库脚本用 `--force` 全量）
+
+`manual` 仅在创建/改源时触发重采，定时管道会跳过。
+
+本机一键安装（推荐）：
+
+```bash
+bash scripts/install-pipeline-sources-launchd.sh          # 每 15 分钟打管道
+bash scripts/install-pipeline-sources-launchd.sh uninstall
+# 日志：~/Library/Application Support/newsc/logs/pipeline-sources.log
+```
+
+> LaunchAgent 实际脚本装在 `~/Library/Application Support/newsc/`（避免 iCloud 路径被系统拒绝执行）。
 
 兼容裸 HTTP（调试用）：
 

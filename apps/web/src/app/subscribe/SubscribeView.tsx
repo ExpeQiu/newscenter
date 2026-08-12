@@ -605,7 +605,7 @@ export default function SubscribePage() {
             <Link href="/digest" className="text-[var(--accent)] underline-offset-2 hover:underline">
               日报
             </Link>{" "}
-            预览；更新周期用于约定入库 / 巡检节奏。
+            预览；更新周期控制定时 vault 入库是否扫描该目录（默认每天）。
             {vault?.config_file ? (
               <span className="mt-1 block break-all text-xs">配置：{vault.config_file}</span>
             ) : null}
@@ -798,7 +798,7 @@ export default function SubscribePage() {
         <div>
           <h2 className="font-[family-name:var(--font-display)] text-xl">社媒账号</h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            粘贴微博 / X / 小红书主页链接自动识别，或手动填写账号标识。
+            粘贴微博 / X / 小红书主页链接自动识别，或手动填写账号标识；更新周期控制定时管道是否采集该源。
           </p>
         </div>
         <ul className="divide-y divide-[var(--line)] border-y border-[var(--line)]">
@@ -914,7 +914,7 @@ export default function SubscribePage() {
         <div>
           <h2 className="font-[family-name:var(--font-display)] text-xl">B 站 / YouTube</h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            粘贴 UP 主空间或 YouTube 频道链接自动识别，或手动填写 mid / 频道 ID。
+            粘贴 UP 主空间或 YouTube 频道链接自动识别，或手动填写 mid / 频道 ID；更新周期控制定时管道是否采集该源。
           </p>
         </div>
         <ul className="divide-y divide-[var(--line)] border-y border-[var(--line)]">

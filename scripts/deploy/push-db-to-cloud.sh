@@ -93,9 +93,9 @@ fi
 if [[ "${SKIP_VAULT_INGEST:-0}" != "1" ]]; then
   log "▶ vault 目录 → DB"
   if [[ "$DRY" -eq 1 ]]; then
-    "$PY" -m pipeline.vault_ingest | tee -a "$LOG" || log "⚠ vault ingest 失败（dry-run 继续）"
+    "$PY" -m pipeline.vault_ingest --force | tee -a "$LOG" || log "⚠ vault ingest 失败（dry-run 继续）"
   else
-    "$PY" -m pipeline.vault_ingest | tee -a "$LOG"
+    "$PY" -m pipeline.vault_ingest --force | tee -a "$LOG"
   fi
 else
   log "↷ 跳过 vault ingest（SKIP_VAULT_INGEST=1）"

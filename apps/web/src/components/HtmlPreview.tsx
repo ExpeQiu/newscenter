@@ -60,6 +60,28 @@ function scopeDocumentCss(css: string, scope: string): string {
 
 const DIGEST_SCOPE = ".digest-html-root";
 
+/** Shadow 内选区：Chromium 用 shadow.getSelection，Safari 用 window.getSelection */
+function readShadowQuote(shadow: ShadowRoot): string {
+  const local = (
+    shadow as ShadowRoot & { getSelection?: () => Selection | null }
+  ).getSelection?.();
+  if (local && !local.isCollapsed) {
+    const t = local.toString().trim();
+    if (t) return t;
+  }
+  const global = window.getSelection();
+  if (!global || global.isCollapsed || !global.rangeCount) return "";
+  const t = global.toString().trim();
+  if (!t || !global.anchorNode) return "";
+  if (!shadow.contains(global.anchorNode)) return "";
+  return t;
+}
+
+export type DigestNoteDetail = { quote: string; x: number; y: number };
+
+/** 与 SelectionNoteMenu 约定的跨 Shadow 事件名 */
+export const DIGEST_NOTE_EVENT = "newsc:add-note";
+
 /** 页内渲染 HTML：Shadow DOM 保留原 <style>，并支持划选加入笔记 */
 export function SelectableDigestHtml({
   html,
@@ -100,6 +122,49 @@ export function SelectableDigestHtml({
       payload.body.length,
       title || ""
     );
+
+    const emitNote = (quote: string, x: number, y: number) => {
+      host.dispatchEvent(
+        new CustomEvent<DigestNoteDetail>(DIGEST_NOTE_EVENT, {
+          bubbles: true,
+          composed: true,
+          detail: { quote, x, y },
+        })
+      );
+      console.info("[digest] note_event chars=%s", quote.length);
+    };
+
+    const onContext = (ev: MouseEvent) => {
+      const quote = readShadowQuote(shadow);
+      if (!quote) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      emitNote(quote, ev.clientX, ev.clientY);
+    };
+
+    const onMouseUp = (ev: MouseEvent | TouchEvent) => {
+      const coarse =
+        typeof window !== "undefined" &&
+        window.matchMedia &&
+        window.matchMedia("(pointer: coarse)").matches;
+      if (!coarse) return;
+      const quote = readShadowQuote(shadow);
+      if (!quote) return;
+      const point =
+        "changedTouches" in ev && ev.changedTouches[0]
+          ? ev.changedTouches[0]
+          : (ev as MouseEvent);
+      emitNote(quote, point.clientX, point.clientY);
+    };
+
+    shadow.addEventListener("contextmenu", onContext as EventListener);
+    shadow.addEventListener("mouseup", onMouseUp as EventListener);
+    shadow.addEventListener("touchend", onMouseUp as EventListener);
+    return () => {
+      shadow.removeEventListener("contextmenu", onContext as EventListener);
+      shadow.removeEventListener("mouseup", onMouseUp as EventListener);
+      shadow.removeEventListener("touchend", onMouseUp as EventListener);
+    };
   }, [payload, title]);
 
   if (!payload.body) return null;

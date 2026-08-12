@@ -29,7 +29,7 @@ PUSH_LOG = ROOT / "logs" / "push-db-to-cloud.log"
 LAUNCHD_LABEL = "com.newsc.push-db-cloud"
 
 MASK = "***"
-DEFAULT_TIMES = "08:25,12:15,18:25,21:15"
+DEFAULT_TIMES = "09:00,12:00,16:00,20:00"
 DEFAULTS = {
     "DEPLOY_HOST": "120.25.145.131",
     "DEPLOY_DIR": "/opt/newsc",

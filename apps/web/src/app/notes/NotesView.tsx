@@ -1,20 +1,30 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type Note, type NoteColumn } from "@/lib/api";
+
+/** 侧栏虚拟项：展示全部笔记（不按栏目过滤） */
+const ALL_ID = "__all__";
 
 export default function NotesView() {
   const [columns, setColumns] = useState<NoteColumn[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string>(ALL_ID);
   const [notes, setNotes] = useState<Note[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [newCol, setNewCol] = useState("");
   const [rename, setRename] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const loadNotes = useCallback(async (columnId: string) => {
-    const res = await api.notes({ column_id: columnId, limit: 200 });
+  const totalCount = useMemo(
+    () => columns.reduce((sum, c) => sum + (c.note_count ?? 0), 0),
+    [columns]
+  );
+
+  const loadNotes = useCallback(async (columnId: string | null) => {
+    const res = await api.notes(
+      columnId ? { column_id: columnId, limit: 200 } : { limit: 200 }
+    );
     setNotes(res.notes);
   }, []);
 
@@ -23,15 +33,15 @@ export default function NotesView() {
     try {
       const cols = await api.noteColumns();
       setColumns(cols.columns);
-      const nextId =
-        (activeId && cols.columns.some((c) => c.id === activeId) && activeId) ||
-        cols.columns[0]?.id ||
-        null;
+      const stayOnColumn =
+        activeId !== ALL_ID && cols.columns.some((c) => c.id === activeId);
+      const nextId = stayOnColumn ? activeId : ALL_ID;
       setActiveId(nextId);
-      setRename(cols.columns.find((c) => c.id === nextId)?.name || "");
-      if (nextId) await loadNotes(nextId);
-      else setNotes([]);
-      console.info("[notes] tab columns=%d active=%s", cols.count, nextId || "");
+      setRename(
+        nextId === ALL_ID ? "" : cols.columns.find((c) => c.id === nextId)?.name || ""
+      );
+      await loadNotes(nextId === ALL_ID ? null : nextId);
+      console.info("[notes] tab columns=%d active=%s", cols.count, nextId);
     } catch (e) {
       console.error("[notes] tab load failed", e);
       setErr(e instanceof Error ? e.message : "加载失败");
@@ -40,15 +50,27 @@ export default function NotesView() {
 
   useEffect(() => {
     void refresh();
-    // 仅首屏；栏目切换走 selectColumn
+    // 仅首屏；栏目切换走 selectColumn / selectAll
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function selectAll() {
+    setActiveId(ALL_ID);
+    setRename("");
+    try {
+      await loadNotes(null);
+      console.info("[notes] select_all");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "加载摘录失败");
+    }
+  }
 
   async function selectColumn(id: string) {
     setActiveId(id);
     setRename(columns.find((c) => c.id === id)?.name || "");
     try {
       await loadNotes(id);
+      console.info("[notes] select_column column_id=%s", id);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "加载摘录失败");
     }
@@ -72,7 +94,7 @@ export default function NotesView() {
   }
 
   async function renameColumn() {
-    if (!activeId || !rename.trim() || busy) return;
+    if (!activeId || activeId === ALL_ID || !rename.trim() || busy) return;
     setBusy(true);
     try {
       await api.patchNoteColumn(activeId, { name: rename.trim() });
@@ -85,17 +107,16 @@ export default function NotesView() {
   }
 
   async function removeColumn() {
-    if (!activeId || busy) return;
+    if (!activeId || activeId === ALL_ID || busy) return;
     if (!confirm("删除栏目将同时删除其中摘录，确认？")) return;
     setBusy(true);
     try {
       await api.deleteNoteColumn(activeId);
-      setActiveId(null);
       const cols = await api.noteColumns();
       setColumns(cols.columns);
-      const next = cols.columns[0]?.id;
-      if (next) await selectColumn(next);
-      else setNotes([]);
+      setActiveId(ALL_ID);
+      setRename("");
+      await loadNotes(null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "删除失败");
     } finally {
@@ -105,21 +126,25 @@ export default function NotesView() {
 
   async function removeNote(id: string) {
     try {
+      const removed = notes.find((n) => n.id === id);
       await api.deleteNote(id);
       setNotes((prev) => prev.filter((n) => n.id !== id));
       setColumns((prev) =>
-        prev.map((c) =>
-          c.id === activeId
-            ? { ...c, note_count: Math.max(0, (c.note_count || 1) - 1) }
-            : c
-        )
+        prev.map((c) => {
+          const hit =
+            removed?.column_id === c.id ||
+            (activeId !== ALL_ID && c.id === activeId);
+          if (!hit) return c;
+          return { ...c, note_count: Math.max(0, (c.note_count || 1) - 1) };
+        })
       );
     } catch (e) {
       setErr(e instanceof Error ? e.message : "删除摘录失败");
     }
   }
 
-  const active = columns.find((c) => c.id === activeId);
+  const active = activeId === ALL_ID ? null : columns.find((c) => c.id === activeId);
+  const showingAll = activeId === ALL_ID;
 
   return (
     <div className="animate-fade-up space-y-6">
@@ -135,6 +160,20 @@ export default function NotesView() {
       <div className="grid gap-6 md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
         <aside className="space-y-3">
           <ul className="rounded-md border border-[var(--line)] divide-y divide-[var(--line)] text-sm">
+            <li>
+              <button
+                type="button"
+                className={`flex w-full items-center justify-between px-3 py-2.5 text-left ${
+                  showingAll
+                    ? "bg-[var(--accent)]/10 text-[var(--ink)] font-medium"
+                    : "text-[var(--body)] hover:bg-[var(--surface)]"
+                }`}
+                onClick={() => void selectAll()}
+              >
+                <span className="truncate">全部</span>
+                <span className="ml-2 text-xs text-[var(--muted)]">{totalCount}</span>
+              </button>
+            </li>
             {columns.map((c) => (
               <li key={c.id}>
                 <button
@@ -151,9 +190,6 @@ export default function NotesView() {
                 </button>
               </li>
             ))}
-            {columns.length === 0 ? (
-              <li className="px-3 py-3 text-[var(--muted)]">暂无栏目</li>
-            ) : null}
           </ul>
           <div className="flex gap-2">
             <input
@@ -202,6 +238,8 @@ export default function NotesView() {
                 删除栏目
               </button>
             </div>
+          ) : showingAll ? (
+            <p className="text-sm text-[var(--muted)]">全部笔记（跨栏目）</p>
           ) : null}
 
           <ul className="space-y-3">
@@ -224,6 +262,11 @@ export default function NotesView() {
                         {n.source_title || "日报"}
                       </Link>
                     )}
+                    {showingAll ? (
+                      <span className="ml-2">
+                        · {columns.find((c) => c.id === n.column_id)?.name || "栏目"}
+                      </span>
+                    ) : null}
                     {n.created_at ? (
                       <span className="ml-2">
                         {new Date(n.created_at).toLocaleString("zh-CN", { hour12: false })}
@@ -240,8 +283,12 @@ export default function NotesView() {
                 </div>
               </li>
             ))}
-            {active && notes.length === 0 ? (
-              <p className="text-sm text-[var(--muted)]">此栏目暂无摘录。去详情或日报划选添加。</p>
+            {notes.length === 0 ? (
+              <p className="text-sm text-[var(--muted)]">
+                {showingAll
+                  ? "暂无摘录。去详情或日报划选添加。"
+                  : "此栏目暂无摘录。去详情或日报划选添加。"}
+              </p>
             ) : null}
           </ul>
         </section>
