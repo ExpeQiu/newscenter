@@ -1,17 +1,11 @@
 import type { NextConfig } from "next";
 
-const orchInternal =
-  process.env.ORCH_INTERNAL_URL?.replace(/\/$/, "") || "http://127.0.0.1:8787";
-
+/**
+ * /api/* 由 app/api/[...path]/route.ts 代理（注入 ORCH_API_TOKEN）。
+ * 不再用 rewrite，避免绕过鉴权头。
+ */
 const nextConfig: NextConfig = {
-  async rewrites() {
-    return [
-      {
-        source: "/api/:path*",
-        destination: `${orchInternal}/:path*`,
-      },
-    ];
-  },
+  // 空配置保留扩展点
 };
 
 export default nextConfig;

@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 from orchestrator.api.sources import run_enabled_sources
 from pipeline.db import get_db
 from pipeline.ingest import upsert_items
+from pipeline.outbox import enqueue
+from pipeline.runtime import is_cloud_runtime
 
 logger = logging.getLogger("newsc.orchestrator")
 router = APIRouter(tags=["pipelines"])
@@ -19,7 +21,18 @@ router = APIRouter(tags=["pipelines"])
 @router.post("/pipelines/{pipeline_id}/run")
 def run_pipeline(pipeline_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     run_id = str(uuid4())
-    logger.info("pipeline_run id=%s run_id=%s", pipeline_id, run_id)
+    logger.info("pipeline_run id=%s run_id=%s cloud=%s", pipeline_id, run_id, is_cloud_runtime())
+
+    if is_cloud_runtime():
+        row = enqueue(db, "pipeline.run", {"pipeline_id": pipeline_id, "run_id": run_id})
+        db.commit()
+        return {
+            "pipeline_id": pipeline_id,
+            "enqueued": True,
+            "outbox_id": row.id if row else None,
+            "run_id": run_id,
+            "message": "云端禁止外采写库；已入队由 Mac 执行",
+        }
 
     if pipeline_id == "sources":
         return run_enabled_sources(db, run_id)

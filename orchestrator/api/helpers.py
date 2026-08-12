@@ -37,20 +37,35 @@ def _as_aware(dt: datetime | float | int | None) -> datetime | None:
 
 
 def item_event_at(item: Item) -> datetime | None:
-    """条目时效：优先 published_at，否则 fetched_at。"""
-    return _as_aware(item.published_at) or _as_aware(item.fetched_at)
+    """条目展示时效：优先较新的 published_at / fetched_at。"""
+    pub = _as_aware(item.published_at)
+    fetch = _as_aware(item.fetched_at)
+    if pub and fetch:
+        return pub if pub >= fetch else fetch
+    return pub or fetch
 
 
-def is_in_today_window(
-    dt: datetime | None,
+def item_in_today_window(
+    item: Item,
     *,
     day: date,
     now: datetime | None = None,
 ) -> bool:
-    """本地日历「当日」00:00 起，或滚动近 24 小时（取并集，凌晨读报仍能看到昨夜）。
+    """published_at 或 fetched_at 任一落在当日/24h 即算今日内容。"""
+    now_a = _as_aware(now) or datetime.now(tz=_local_tz())
+    for dt in (_as_aware(item.published_at), _as_aware(item.fetched_at)):
+        if is_in_today_window(dt, day=day, now=now_a):
+            return True
+    return False
 
-    排序上仍优先日历当日；此处只决定是否入选。
-    """
+
+def is_in_today_window(
+    dt: datetime | float | int | None,
+    *,
+    day: date,
+    now: datetime | None = None,
+) -> bool:
+    """本地日历「当日」00:00 起，或滚动近 24 小时（取并集，凌晨读报仍能看到昨夜）。"""
     u = _as_aware(dt)
     if u is None:
         return False
@@ -73,20 +88,19 @@ def filter_items_today(
     """优先日历当日；若当日为空，再退到近 24 小时。"""
     now_a = _as_aware(now) or datetime.now(tz=_local_tz())
     local = _local_tz()
-    windowed = [it for it in items if is_in_today_window(item_event_at(it), day=day, now=now_a)]
+    windowed = [it for it in items if item_in_today_window(it, day=day, now=now_a)]
+
+    def _on_calendar(it: Item) -> bool:
+        for dt in (_as_aware(it.published_at), _as_aware(it.fetched_at)):
+            if dt and dt.astimezone(local).date() == day:
+                return True
+        return False
 
     def _sort_key(it: Item) -> tuple[int, float]:
         ev = item_event_at(it) or datetime.min.replace(tzinfo=timezone.utc)
-        return (
-            0 if ev.astimezone(local).date() == day else 1,
-            -ev.timestamp(),
-        )
+        return (0 if _on_calendar(it) else 1, -ev.timestamp())
 
-    calendar = [
-        it
-        for it in windowed
-        if item_event_at(it) and item_event_at(it).astimezone(local).date() == day
-    ]
+    calendar = [it for it in windowed if _on_calendar(it)]
     chosen = calendar if calendar else windowed
     chosen.sort(key=_sort_key)
     return chosen
@@ -141,8 +155,11 @@ def synthesize_today_markdown(
     day: date,
     vault_entries: list[Any] | None = None,
 ) -> tuple[str, list[str]]:
-    """无 AI 日报时，由当日/24h 内条目（+ 目录日报清单）拼出高度总结 Markdown。"""
-    lines: list[str] = [f"# 今日洞察 · {day.isoformat()}", ""]
+    """无 AI 日报时，由当日/24h 内条目（+ 目录日报清单）拼出高度总结 Markdown。
+
+    不输出「今日洞察」标题与条数说明（页面 section 已有标题，避免重复）。
+    """
+    lines: list[str] = []
     highlights: list[str] = []
     vault_entries = vault_entries or []
 
@@ -151,17 +168,6 @@ def synthesize_today_markdown(
         by_cat[it.ai_category or "综合"].append(it)
 
     if items:
-        day_n = sum(
-            1
-            for it in items
-            if item_event_at(it) and item_event_at(it).astimezone(_local_tz()).date() == day
-        )
-        cats = "、".join(f"{c} {len(g)}" for c, g in by_cat.items())
-        if day_n == len(items):
-            lines.append(f"> 当日共 **{len(items)}** 条（{cats}），以下为高度总结。")
-        else:
-            lines.append(f"> 近 24 小时共 **{len(items)}** 条（当日暂无，已回退；{cats}），以下为高度总结。")
-        lines.append("")
         for cat, group in by_cat.items():
             lines.append(f"## {cat}")
             lines.append("")
@@ -189,10 +195,8 @@ def synthesize_today_markdown(
             if day_token in str(getattr(e, "path", "") or "")
             or day_token in str(getattr(e, "name", "") or "")
         ]
-        title = "目录日报（当日）" if vault_day else "目录日报（近 24 小时）"
-        lines.append(f"## {title}")
-        lines.append("")
-        lines.append(f"另有 **{len(vault_entries)}** 份 HTML 日报（完整原文见「日报」页）：")
+        heading = "目录日报" if vault_day else "目录日报（近 24 小时）"
+        lines.append(f"## {heading}")
         lines.append("")
         for e in vault_entries[:8]:
             label = getattr(e, "source_label", None) or getattr(e, "source_id", "") or "日报"
@@ -200,7 +204,8 @@ def synthesize_today_markdown(
             lines.append(f"- {label} · `{path}`")
         lines.append("")
 
-    return "\n".join(lines).strip() + "\n", highlights[:12]
+    return ("\n".join(lines).strip() + "\n") if lines else "", highlights[:12]
+
 
 
 def heuristic_recommendations(

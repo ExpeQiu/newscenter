@@ -23,6 +23,8 @@ from pipeline.digest_vault import (
     vault_status,
 )
 from pipeline.models import Digest, Item
+from pipeline.outbox import enqueue
+from pipeline.runtime import is_cloud_runtime
 from pipeline.vault_store import (
     enrich_vault_status,
     list_html_files_smart,
@@ -272,9 +274,9 @@ class VaultSourceToggle(BaseModel):
 
 
 @router.post("/digests/vault/sources")
-def upsert_vault_source(body: VaultSourceBody) -> dict[str, Any]:
+def upsert_vault_source(body: VaultSourceBody, db: Session = Depends(get_db)) -> dict[str, Any]:
     try:
-        return vault_upsert_source(
+        out = vault_upsert_source(
             source_id=body.id,
             label=body.label,
             path=body.path,
@@ -283,19 +285,43 @@ def upsert_vault_source(body: VaultSourceBody) -> dict[str, Any]:
         )
     except DigestVaultError as exc:
         raise HTTPException(exc.status_code, str(exc)) from exc
+    enqueue(
+        db,
+        "vault_source.upsert",
+        {
+            "id": body.id.strip(),
+            "label": body.label,
+            "path": body.path,
+            "enabled": body.enabled,
+            "refresh_interval": body.refresh_interval,
+        },
+    )
+    db.commit()
+    logger.info("vault_source_upsert id=%s cloud=%s", body.id, is_cloud_runtime())
+    return out
 
 
 @router.patch("/digests/vault/sources/{source_id}")
-def toggle_vault_source(source_id: str, body: VaultSourceToggle) -> dict[str, Any]:
+def toggle_vault_source(
+    source_id: str, body: VaultSourceToggle, db: Session = Depends(get_db)
+) -> dict[str, Any]:
     try:
-        return vault_set_enabled(source_id, body.enabled)
+        out = vault_set_enabled(source_id, body.enabled)
     except DigestVaultError as exc:
         raise HTTPException(exc.status_code, str(exc)) from exc
+    enqueue(db, "vault_source.upsert", {"id": source_id, "enabled": body.enabled})
+    db.commit()
+    logger.info("vault_source_toggle id=%s enabled=%s cloud=%s", source_id, body.enabled, is_cloud_runtime())
+    return out
 
 
 @router.delete("/digests/vault/sources/{source_id}")
-def remove_vault_source(source_id: str) -> dict[str, Any]:
+def remove_vault_source(source_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     try:
-        return vault_delete_source(source_id)
+        out = vault_delete_source(source_id)
     except DigestVaultError as exc:
         raise HTTPException(exc.status_code, str(exc)) from exc
+    enqueue(db, "vault_source.delete", {"id": source_id})
+    db.commit()
+    logger.info("vault_source_delete id=%s cloud=%s", source_id, is_cloud_runtime())
+    return out

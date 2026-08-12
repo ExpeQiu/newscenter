@@ -1,7 +1,7 @@
 """Items / marks / tags / category / recommendations."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -87,6 +87,8 @@ def patch_marks(item_id: str, body: MarksPatch, db: Session = Depends(get_db)) -
         mark.is_archived = body.is_archived
     if body.note is not None:
         mark.note = body.note
+    # 显式刷新，保证跨端合并可用
+    mark.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(item)
     return item_dict(item, db)

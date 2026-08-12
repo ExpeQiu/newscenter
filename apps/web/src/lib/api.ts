@@ -190,7 +190,13 @@ export const api = {
     }),
   deleteSource: (id: string) =>
     req<{ id: string; deleted: boolean }>(`/sources/${id}`, { method: "DELETE" }),
-  upsertVaultSource: (body: { id: string; label: string; path: string; enabled?: boolean }) =>
+  upsertVaultSource: (body: {
+    id: string;
+    label: string;
+    path: string;
+    enabled?: boolean;
+    refresh_interval?: string;
+  }) =>
     req<DigestVaultSource>("/digests/vault/sources", {
       method: "POST",
       body: JSON.stringify(body),

@@ -42,6 +42,8 @@ const CLI_GROUPS: CliGroup[] = [
       { cmd: "bash scripts/deploy/db-tunnel.sh -d", desc: "确保 SSH 隧道（默认本机 15434）" },
       { cmd: "bash scripts/deploy/push-db-to-cloud.sh", desc: "vault ingest → pg_dump → 云端 restore" },
       { cmd: "bash scripts/deploy/push-db-to-cloud.sh --dry-run", desc: "只 dump / 对账，不写云" },
+      { cmd: "bash scripts/deploy/pull-cloud-control.sh", desc: "拉云端 marks + 消费 outbox（A/B/C）" },
+      { cmd: "bash scripts/deploy/install-cloud-bridge-launchd.sh", desc: "安装每 2 分钟控制面 Agent" },
       { cmd: "bash scripts/deploy/install-push-db-launchd.sh", desc: "按 .env.cloud.local 安装定时推送" },
       { cmd: "bash scripts/deploy/install-push-db-launchd.sh uninstall", desc: "卸载定时推送 LaunchAgent" },
     ],
@@ -250,7 +252,9 @@ export default function SettingsPage() {
             <code className="text-[var(--ink)]">stock-pg / newsc</code>
             。配置写入{" "}
             <code className="text-[var(--ink)]">.env.cloud.local</code>
-            （勿提交）。
+            （勿提交）。云端页面的星标 / 订阅 / 推库指令经 outbox 回写 Mac（需安装{" "}
+            <code className="text-[var(--ink)]">install-cloud-bridge-launchd.sh</code>
+            ）。
           </p>
         </div>
 

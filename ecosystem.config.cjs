@@ -34,7 +34,10 @@ module.exports = {
         NODE_ENV: "production",
         NODE_OPTIONS: "--max-old-space-size=512",
         PORT: 8333,
-        ORCH_INTERNAL_URL: "http://127.0.0.1:8787",
+        ORCH_INTERNAL_URL: process.env.ORCH_INTERNAL_URL || "http://127.0.0.1:8787",
+        // 供 Next /api 代理注入写接口鉴权（勿写进 NEXT_PUBLIC_*）
+        ORCH_API_TOKEN: process.env.ORCH_API_TOKEN || "",
+        NEXT_PUBLIC_API_BASE: process.env.NEXT_PUBLIC_API_BASE || "/api",
       },
       error_file: "../../logs/pm2-web-error.log",
       out_file: "../../logs/pm2-web-out.log",

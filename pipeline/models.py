@@ -208,3 +208,34 @@ class PipelineRun(Base):
     stats: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     status: Mapped[str] = mapped_column(String(20), default="ok")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CloudOutbox(Base):
+    """云端控制面指令：Mac Agent 拉取后应用到本机（配置 / 行动）。"""
+
+    __tablename__ = "cloud_outbox"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    kind: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    status: Mapped[str] = mapped_column(
+        String(20), default="pending", index=True
+    )  # pending|claimed|done|failed
+    origin: Mapped[str] = mapped_column(String(20), default="cloud")
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    result: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    done_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ControlSetting(Base):
+    """跨端控制面快照（如云端保存的同步配置，供 GET 回显）。"""
+
+    __tablename__ = "control_settings"
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

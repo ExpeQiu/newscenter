@@ -47,20 +47,6 @@ if ! pg_isready -h /tmp >/dev/null 2>&1 && ! pg_isready -h 127.0.0.1 -p 5432 >/d
   exit 1
 fi
 
-if [[ "${SKIP_VAULT_INGEST:-0}" != "1" ]]; then
-  log "▶ vault 目录 → DB"
-  export PYTHONPATH="$ROOT:$ROOT/collectors/rss-CLI:$ROOT/collectors/youtube-CLI:$ROOT/collectors/bilibili-CLI:$ROOT/collectors/social-CLI:$ROOT/digest-CLI:$ROOT/newsc-CLI:${PYTHONPATH:-}"
-  PY="${ROOT}/.venv/bin/python"
-  [[ -x "$PY" ]] || PY=python3
-  if [[ "$DRY" -eq 1 ]]; then
-    "$PY" -m pipeline.vault_ingest | tee -a "$LOG" || log "⚠ vault ingest 失败（dry-run 继续）"
-  else
-    "$PY" -m pipeline.vault_ingest | tee -a "$LOG"
-  fi
-else
-  log "↷ 跳过 vault ingest（SKIP_VAULT_INGEST=1）"
-fi
-
 log "▶ 确保隧道 :${LOCAL_PORT}"
 bash "$ROOT/scripts/deploy/db-tunnel.sh" -d
 # 等待隧道真正可连（避免刚拉起即 psql 被拒）
@@ -76,8 +62,50 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
 done
 log "✓ 隧道就绪"
 
-log "▶ pg_dump newsc"
-pg_dump -Fp --no-owner --no-acl --clean --if-exists "$LOCAL_URL" -f "$DUMP"
+# A：先把云端较新的星标/已读合并回本机，再 dump，避免整库覆盖丢失
+export PYTHONPATH="$ROOT:$ROOT/collectors/rss-CLI:$ROOT/collectors/youtube-CLI:$ROOT/collectors/bilibili-CLI:$ROOT/collectors/social-CLI:$ROOT/digest-CLI:$ROOT/newsc-CLI:${PYTHONPATH:-}"
+PY="${ROOT}/.venv/bin/python"
+[[ -x "$PY" ]] || PY=python3
+if [[ "${SKIP_MARKS_MERGE:-0}" != "1" ]]; then
+  log "▶ 合并云端 marks → 本机"
+  if [[ "$DRY" -eq 1 ]]; then
+    "$PY" -m pipeline.cloud_bridge --marks-only | tee -a "$LOG" || log "⚠ marks 合并失败（dry-run 继续）"
+  else
+    "$PY" -m pipeline.cloud_bridge --marks-only | tee -a "$LOG"
+  fi
+else
+  log "↷ 跳过 marks 合并（SKIP_MARKS_MERGE=1）"
+fi
+
+# B/C：推库前先消化 pending outbox，避免随后 dump 盖掉未应用的云端配置
+if [[ "${SKIP_OUTBOX_DRAIN:-0}" != "1" ]]; then
+  log "▶ 消费云端 outbox（跳过 sync.push_db 防递归）"
+  export CLOUD_BRIDGE_SKIP_KINDS="${CLOUD_BRIDGE_SKIP_KINDS:-sync.push_db}"
+  if [[ "$DRY" -eq 1 ]]; then
+    "$PY" -m pipeline.cloud_bridge --drain-only | tee -a "$LOG" || log "⚠ outbox drain 失败（dry-run 继续）"
+  else
+    "$PY" -m pipeline.cloud_bridge --drain-only | tee -a "$LOG"
+  fi
+else
+  log "↷ 跳过 outbox drain（SKIP_OUTBOX_DRAIN=1）"
+fi
+
+if [[ "${SKIP_VAULT_INGEST:-0}" != "1" ]]; then
+  log "▶ vault 目录 → DB"
+  if [[ "$DRY" -eq 1 ]]; then
+    "$PY" -m pipeline.vault_ingest | tee -a "$LOG" || log "⚠ vault ingest 失败（dry-run 继续）"
+  else
+    "$PY" -m pipeline.vault_ingest | tee -a "$LOG"
+  fi
+else
+  log "↷ 跳过 vault ingest（SKIP_VAULT_INGEST=1）"
+fi
+
+log "▶ pg_dump newsc（排除 cloud_outbox / control_settings，保留云端控制面）"
+pg_dump -Fp --no-owner --no-acl --clean --if-exists \
+  --exclude-table=cloud_outbox \
+  --exclude-table=control_settings \
+  "$LOCAL_URL" -f "$DUMP"
 python3 "$ROOT/scripts/deploy/strip-pg18-dump.py" "$DUMP" "$STRIPPED"
 log "✓ dump $(wc -c <"$STRIPPED" | tr -d ' ') bytes"
 
@@ -98,6 +126,20 @@ if [[ "$RC" -ne 0 ]]; then
   exit 1
 fi
 log "✓ 云端恢复完成"
+
+# 确保控制面表存在（首次或旧库）
+log "▶ 确保云端 outbox 表"
+CLOUD_URL="$CLOUD_URL" "$PY" - <<'PY' | tee -a "$LOG" || log "⚠ 云端建表跳过"
+import os
+from sqlalchemy import create_engine
+url = os.environ["CLOUD_URL"]
+if url.startswith("postgresql://"):
+    url = "postgresql+psycopg://" + url[len("postgresql://"):]
+from pipeline.models import Base
+engine = create_engine(url, pool_pre_ping=True)
+Base.metadata.create_all(bind=engine, tables=[Base.metadata.tables["cloud_outbox"], Base.metadata.tables["control_settings"]])
+print("cloud_outbox/control_settings ready")
+PY
 
 log "▶ 对账"
 export LOCAL_URL CLOUD_URL

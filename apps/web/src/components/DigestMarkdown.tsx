@@ -49,11 +49,22 @@ interface DigestMarkdownProps {
   className?: string;
 }
 
+/** 去掉与页面「今日洞察」标题重复的开头 h1 / 条数说明引用 */
+function stripRedundantLead(md: string): string {
+  let s = md.trim();
+  // # 今日洞察 · 2026-08-12
+  s = s.replace(/^#\s*今日洞察[^\n]*\n+/u, "");
+  // > 近 24 小时共 **2** 条…
+  s = s.replace(/^>\s*[^\n]*(?:高度总结|条)[^\n]*\n+/u, "");
+  return s.trim();
+}
+
 /** 今日洞察等 Markdown 正文：标题层级、加粗、列表可读渲染 */
 export function DigestMarkdown({ content, className = "" }: DigestMarkdownProps) {
+  const body = stripRedundantLead(content);
   return (
     <article className={`prose-digest ${className}`.trim()}>
-      <ReactMarkdown components={components}>{content}</ReactMarkdown>
+      <ReactMarkdown components={components}>{body}</ReactMarkdown>
     </article>
   );
 }

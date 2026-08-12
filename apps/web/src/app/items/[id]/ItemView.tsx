@@ -84,16 +84,16 @@ export default function ItemView({ id }: { id: string }) {
       <Link href="/feed" className="text-sm text-[var(--muted)] hover:text-[var(--ink)]">
         ← 返回浏览
       </Link>
-      <div className="mt-4 max-w-[42rem] text-xs uppercase tracking-wide text-[var(--muted)]">
+      <div className="mt-4 text-xs uppercase tracking-wide text-[var(--muted)]">
         {item.source_type}
         {item.content_type ? ` · ${item.content_type}` : ""}
         {item.ai_category ? ` · ${item.ai_category}` : ""}
       </div>
-      <h1 className="mt-2 max-w-[42rem] font-[family-name:var(--font-display)] text-3xl leading-tight md:text-4xl">
+      <h1 className="mt-2 font-[family-name:var(--font-display)] text-3xl leading-tight md:text-4xl">
         {item.title}
       </h1>
       {facts.length ? (
-        <p className="mt-2 flex max-w-[42rem] flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[var(--muted)]">
+        <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[var(--muted)]">
           {facts.map((f, i) => (
             <span key={`${f}-${i}`} className="inline-flex items-center gap-2">
               {i > 0 ? <span aria-hidden className="opacity-40">·</span> : null}
@@ -103,7 +103,7 @@ export default function ItemView({ id }: { id: string }) {
         </p>
       ) : null}
 
-      <section className="mt-6 max-w-[42rem] rounded-md bg-[var(--surface)]/80 px-4 py-4">
+      <section className="mt-6 w-full rounded-md bg-[var(--surface)]/80 px-4 py-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">摘要</h2>
           <div className="flex flex-wrap items-center gap-2">
@@ -137,7 +137,7 @@ export default function ItemView({ id }: { id: string }) {
       </section>
 
       {item.content_type === "video" && (item.embed_url || item.url) ? (
-        <section className="mt-6 max-w-[42rem]">
+        <section className="mt-6 w-full">
           <VideoEmbed
             provider={item.embed_provider}
             embedUrl={item.embed_url}
@@ -148,7 +148,7 @@ export default function ItemView({ id }: { id: string }) {
       ) : null}
 
       {item.content_type === "image" && (item.thumbnail_url || item.url) ? (
-        <section className="mt-6 max-w-[42rem] overflow-hidden rounded-md bg-[var(--surface)]">
+        <section className="mt-6 w-full overflow-hidden rounded-md bg-[var(--surface)]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={item.thumbnail_url || item.url || ""}
@@ -159,8 +159,8 @@ export default function ItemView({ id }: { id: string }) {
       ) : null}
 
       {item.body ? (
-        <section className="mt-8">
-          <div className="mb-3 flex max-w-[42rem] items-baseline justify-between gap-3">
+        <section className="mt-8 w-full">
+          <div className="mb-3 flex items-baseline justify-between gap-3">
             <h2 className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">正文</h2>
             {item.url ? (
               <a

@@ -44,11 +44,10 @@ export default function TodayPage() {
   return (
     <div className="animate-fade-up space-y-10">
       <header>
-        <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Daily Insight</p>
+        <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">NewsC</p>
         <h1 className="mt-2 font-[family-name:var(--font-display)] text-4xl text-[var(--ink)] md:text-5xl">
-          NewsC
+          信息中心
         </h1>
-        <p className="mt-3 max-w-xl text-[var(--body)]">每日一站，洞察全网。摘要先行，再决定深挖。</p>
       </header>
 
       {err ? (
@@ -79,19 +78,10 @@ export default function TodayPage() {
             。
           </div>
         ) : digest.markdown ? (
-          <>
-            {digest.synthesized ? (
-              <p className="text-xs text-[var(--muted)]">
-                优先汇总当日内容（不足时回退近 24 小时）
-                {digest.vault?.count ? ` · 当日目录日报 ${digest.vault.count} 份` : ""}
-                。完整 AI 日报可在设置中跑「AI 处理」。
-              </p>
-            ) : null}
-            <DigestMarkdown
-              content={digest.markdown}
-              className="rounded-md bg-[var(--surface)]/70 px-4 py-5 text-[15px] leading-relaxed"
-            />
-          </>
+          <DigestMarkdown
+            content={digest.markdown}
+            className="rounded-md bg-[var(--surface)]/70 px-4 py-5 text-[15px] leading-relaxed"
+          />
         ) : (
           <HtmlPreview content={digest.html} title={`今日洞察 · ${digest.date}`} />
         )}

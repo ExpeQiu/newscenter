@@ -15,6 +15,8 @@ from pipeline.db import get_db
 from pipeline.ingest import purge_source_items, upsert_items
 from pipeline.models import Source
 from pipeline.normalize import CollectItem
+from pipeline.outbox import enqueue
+from pipeline.runtime import is_cloud_runtime
 from pipeline.refresh_interval import (
     canonicalize_refresh_interval,
     source_is_due,
@@ -303,17 +305,35 @@ def create_source(body: SourceCreate, db: Session = Depends(get_db)) -> dict[str
     config = normalize_source_config(stype, body.config, require=True)
     row = Source(name=name, type=stype, config=config, enabled=body.enabled)
     db.add(row)
+    db.flush()
+    enqueue(
+        db,
+        "source.upsert",
+        {
+            "id": row.id,
+            "name": row.name,
+            "type": row.type,
+            "config": row.config or {},
+            "enabled": row.enabled,
+        },
+    )
     db.commit()
     db.refresh(row)
     logger.info(
-        "source_create id=%s type=%s name=%s refresh=%s",
+        "source_create id=%s type=%s name=%s refresh=%s cloud=%s",
         row.id,
         row.type,
         row.name,
         (row.config or {}).get("refresh_interval"),
+        is_cloud_runtime(),
     )
     out = source_dict(row)
-    if row.enabled and row.type in ("rss", "web", "youtube", "bilibili", "social"):
+    # 云端禁止外采写库；仅本机即时重采
+    if (
+        not is_cloud_runtime()
+        and row.enabled
+        and row.type in ("rss", "web", "youtube", "bilibili", "social")
+    ):
         try:
             out["resync"] = collect_one_source(db, row, run_id=str(uuid4()))
         except Exception as exc:  # noqa: BLE001
@@ -356,10 +376,21 @@ def update_source(source_id: str, body: SourceUpdate, db: Session = Depends(get_
     if identity_changed:
         purged = purge_source_items(db, s.id)
         s.cursor = None
+    enqueue(
+        db,
+        "source.upsert",
+        {
+            "id": s.id,
+            "name": s.name,
+            "type": s.type,
+            "config": s.config or {},
+            "enabled": s.enabled,
+        },
+    )
     db.commit()
     db.refresh(s)
     logger.info(
-        "source_update id=%s enabled=%s name=%s identity_changed=%s purged=%s refresh=%s config_keys=%s",
+        "source_update id=%s enabled=%s name=%s identity_changed=%s purged=%s refresh=%s config_keys=%s cloud=%s",
         s.id,
         s.enabled,
         s.name,
@@ -367,11 +398,17 @@ def update_source(source_id: str, body: SourceUpdate, db: Session = Depends(get_
         purged,
         (s.config or {}).get("refresh_interval"),
         list((s.config or {}).keys()),
+        is_cloud_runtime(),
     )
     out = source_dict(s)
     out["identity_changed"] = identity_changed
     out["purged_items"] = purged
-    if identity_changed and s.enabled and s.type in ("rss", "web", "youtube", "bilibili", "social"):
+    if (
+        not is_cloud_runtime()
+        and identity_changed
+        and s.enabled
+        and s.type in ("rss", "web", "youtube", "bilibili", "social")
+    ):
         try:
             out["resync"] = collect_one_source(db, s, run_id=str(uuid4()))
         except Exception as exc:  # noqa: BLE001
@@ -385,8 +422,9 @@ def remove_source(source_id: str, db: Session = Depends(get_db)) -> dict[str, An
     s = db.query(Source).filter(Source.id == source_id).first()
     if not s:
         raise HTTPException(404, "source not found")
-    logger.info("source_delete id=%s type=%s name=%s", source_id, s.type, s.name)
+    logger.info("source_delete id=%s type=%s name=%s cloud=%s", source_id, s.type, s.name, is_cloud_runtime())
     purged = purge_source_items(db, source_id)
+    enqueue(db, "source.delete", {"id": source_id})
     db.delete(s)
     db.commit()
     return {"id": source_id, "deleted": True, "purged_items": purged}
