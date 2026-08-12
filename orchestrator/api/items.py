@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from orchestrator.api.helpers import heuristic_recommendations, item_dict
@@ -27,7 +28,8 @@ def list_items(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-    q = db.query(Item).order_by(Item.fetched_at.desc())
+    # 按创作时间（published_at）从新到旧；缺失时回退到抓取时间
+    q = db.query(Item).order_by(func.coalesce(Item.published_at, Item.fetched_at).desc())
     if source_type:
         q = q.filter(Item.source_type == source_type)
     if content_type:

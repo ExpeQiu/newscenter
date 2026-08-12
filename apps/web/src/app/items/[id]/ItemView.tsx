@@ -163,6 +163,7 @@ export default function ItemView({ id }: { id: string }) {
           <img
             src={item.thumbnail_url || item.url || ""}
             alt={item.title}
+            referrerPolicy="no-referrer"
             className="h-auto w-full object-cover"
           />
         </section>

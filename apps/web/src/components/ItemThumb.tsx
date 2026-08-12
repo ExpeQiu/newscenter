@@ -51,6 +51,7 @@ export function ItemThumb({
           <img
             src={src}
             alt=""
+            referrerPolicy="no-referrer"
             className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
           />
         ) : (
