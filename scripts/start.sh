@@ -39,8 +39,32 @@ ORCH_PORT="${ORCH_PORT:-8787}"
 ORCH_HOST="${ORCH_HOST:-127.0.0.1}"
 WEB_PORT="${WEB_PORT:-3000}"
 
+port_pids() {
+  local port="$1"
+  lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | sort -u || true
+}
+
+# 若 pidfile 失效但端口仍被占用，同步 pidfile，避免再起一个绑不上的僵尸进程
+sync_pidfile_from_port() {
+  local port="$1"
+  local pidfile="$2"
+  local name="$3"
+  local listeners
+  listeners="$(port_pids "$port")"
+  if [[ -z "$listeners" ]]; then
+    return 1
+  fi
+  local first
+  first="$(echo "$listeners" | head -1)"
+  echo "$first" >"$pidfile"
+  echo "[start] $name port :$port already listening pid=$first (synced pidfile)"
+  return 0
+}
+
 if [[ -f pids/orchestrator.pid ]] && kill -0 "$(cat pids/orchestrator.pid)" 2>/dev/null; then
   echo "[start] orchestrator already running pid=$(cat pids/orchestrator.pid)"
+elif sync_pidfile_from_port "$ORCH_PORT" pids/orchestrator.pid orchestrator; then
+  :
 else
   # start_new_session：避免父 shell 退出时带走进程
   python - <<PY
@@ -56,15 +80,16 @@ print(f"[start] orchestrator pid={p.pid} :$ORCH_PORT")
 PY
 fi
 
-# wait health
+# wait health + 确认笔记路由已加载（避免旧进程占端口却误报成功）
 for i in $(seq 1 30); do
-  if curl -sf "http://$ORCH_HOST:$ORCH_PORT/health" >/dev/null; then
+  if curl -sf "http://$ORCH_HOST:$ORCH_PORT/health" >/dev/null \
+    && curl -sf "http://$ORCH_HOST:$ORCH_PORT/note-columns" >/dev/null; then
     echo "[start] health ok"
     break
   fi
   sleep 0.3
   if [[ $i -eq 30 ]]; then
-    echo "[start] health timeout" >&2
+    echo "[start] health timeout（或笔记路由缺失，请 ./scripts/stop.sh 后重试）" >&2
     exit 1
   fi
 done
@@ -81,6 +106,8 @@ if [[ -d apps/web ]]; then
   fi
   if [[ -f pids/web.pid ]] && kill -0 "$(cat pids/web.pid)" 2>/dev/null; then
     echo "[start] web already running pid=$(cat pids/web.pid)"
+  elif sync_pidfile_from_port "$WEB_PORT" pids/web.pid web; then
+    :
   else
     python - <<PY
 import subprocess

@@ -83,6 +83,26 @@ export type DigestVaultFile = {
   size: number;
 };
 
+export type NoteColumn = {
+  id: string;
+  name: string;
+  sort_order: number;
+  created_at?: string | null;
+  note_count?: number;
+};
+
+export type Note = {
+  id: string;
+  column_id: string;
+  quote_text: string;
+  source_kind: "item" | "digest";
+  item_id?: string | null;
+  digest_date?: string | null;
+  source_title: string;
+  source_url?: string | null;
+  created_at?: string | null;
+};
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -290,6 +310,47 @@ export const api = {
     req<{ answer: string; citations: string[] }>("/ai/ask", {
       method: "POST",
       body: JSON.stringify({ question, item_id }),
+    }),
+  noteColumns: () => req<{ columns: NoteColumn[]; count: number }>("/note-columns"),
+  createNoteColumn: (name: string, sort_order?: number) =>
+    req<NoteColumn>("/note-columns", {
+      method: "POST",
+      body: JSON.stringify({ name, sort_order }),
+    }),
+  patchNoteColumn: (id: string, body: { name?: string; sort_order?: number }) =>
+    req<NoteColumn>(`/note-columns/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  deleteNoteColumn: (id: string) =>
+    req<{ id: string; deleted: boolean; notes_removed?: number }>(
+      `/note-columns/${encodeURIComponent(id)}`,
+      { method: "DELETE" }
+    ),
+  notes: (opts?: { column_id?: string; limit?: number; offset?: number }) => {
+    const sp = new URLSearchParams();
+    if (opts?.column_id) sp.set("column_id", opts.column_id);
+    if (opts?.limit) sp.set("limit", String(opts.limit));
+    if (opts?.offset) sp.set("offset", String(opts.offset));
+    const qs = sp.toString();
+    return req<{ notes: Note[]; count: number }>(`/notes${qs ? `?${qs}` : ""}`);
+  },
+  createNote: (body: {
+    column_id: string;
+    quote_text: string;
+    source_kind: "item" | "digest";
+    item_id?: string | null;
+    digest_date?: string | null;
+    source_title?: string;
+    source_url?: string | null;
+  }) =>
+    req<Note>("/notes", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  deleteNote: (id: string) =>
+    req<{ id: string; deleted: boolean }>(`/notes/${encodeURIComponent(id)}`, {
+      method: "DELETE",
     }),
 };
 

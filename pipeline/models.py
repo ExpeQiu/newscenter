@@ -124,6 +124,41 @@ class CollectionItem(Base):
     item_id: Mapped[str] = mapped_column(String(36), ForeignKey("items.id", ondelete="CASCADE"))
 
 
+class NoteColumn(Base):
+    """笔记自定义栏目。"""
+
+    __tablename__ = "note_columns"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    notes: Mapped[list["Note"]] = relationship(back_populates="column", cascade="all, delete-orphan")
+
+
+class Note(Base):
+    """划选摘录笔记（与 marks.note 整篇备注分离）。"""
+
+    __tablename__ = "notes"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    column_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("note_columns.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    quote_text: Mapped[str] = mapped_column(Text, nullable=False)
+    source_kind: Mapped[str] = mapped_column(String(20), nullable=False)  # item|digest
+    item_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("items.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    digest_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    source_title: Mapped[str] = mapped_column(Text, default="")
+    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    column: Mapped["NoteColumn"] = relationship(back_populates="notes")
+
+
 class Digest(Base):
     __tablename__ = "digests"
     __table_args__ = (UniqueConstraint("digest_date", name="uq_digest_date"),)

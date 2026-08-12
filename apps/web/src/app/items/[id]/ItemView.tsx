@@ -7,6 +7,7 @@ import { ItemBody } from "@/components/ItemBody";
 import { ItemSummary } from "@/components/ItemSummary";
 import { VideoEmbed } from "@/components/VideoEmbed";
 import { AgentAskSheet, MarkBar } from "@/components/MarkBar";
+import { SelectionNoteMenu } from "@/components/SelectionNoteMenu";
 import { formatCount, formatPublishedAt } from "@/lib/format";
 import { unwrapSummary } from "@/lib/formatSummary";
 
@@ -128,7 +129,16 @@ export default function ItemView({ id }: { id: string }) {
             )}
           </div>
         </div>
-        <ItemSummary summary={item.summary || ""} />
+        <SelectionNoteMenu
+          source={{
+            source_kind: "item",
+            item_id: item.id,
+            source_title: item.title,
+            source_url: item.url,
+          }}
+        >
+          <ItemSummary summary={item.summary || ""} />
+        </SelectionNoteMenu>
         {aiMsg ? (
           <p className={`mt-2 text-xs ${aiBusy ? "text-[var(--muted)]" : "text-[var(--body)]"}`}>
             {aiMsg}
@@ -173,7 +183,16 @@ export default function ItemView({ id }: { id: string }) {
               </a>
             ) : null}
           </div>
-          <ItemBody body={item.body} />
+          <SelectionNoteMenu
+            source={{
+              source_kind: "item",
+              item_id: item.id,
+              source_title: item.title,
+              source_url: item.url,
+            }}
+          >
+            <ItemBody body={item.body} />
+          </SelectionNoteMenu>
         </section>
       ) : item.url ? (
         <p className="mt-4 text-sm">

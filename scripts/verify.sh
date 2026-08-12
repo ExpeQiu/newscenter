@@ -108,6 +108,17 @@ curl -sf -X POST "http://$ORCH_HOST:$ORCH_PORT/digests/vault/sources" \
 curl -sf -X DELETE "http://$ORCH_HOST:$ORCH_PORT/digests/vault/sources/verify-tmp" >/dev/null
 echo "  subscribe CRUD ok"
 
+echo "[verify] notes columns + quote"
+COLS=$(curl -sf "http://$ORCH_HOST:$ORCH_PORT/note-columns")
+echo "$COLS" | python -c "import sys,json; d=json.load(sys.stdin); assert d.get('count',0)>=1, d"
+COL_ID=$(echo "$COLS" | python -c "import sys,json; print(json.load(sys.stdin)['columns'][0]['id'])")
+NOTE=$(curl -sf -X POST "http://$ORCH_HOST:$ORCH_PORT/notes" \
+  -H 'Content-Type: application/json' \
+  -d "{\"column_id\":\"$COL_ID\",\"quote_text\":\"verify划选摘录\",\"source_kind\":\"digest\",\"source_title\":\"verify\"}")
+NOTE_ID=$(echo "$NOTE" | python -c "import sys,json; d=json.load(sys.stdin); assert d.get('quote_text')=='verify划选摘录', d; print(d['id'])")
+curl -sf -X DELETE "http://$ORCH_HOST:$ORCH_PORT/notes/$NOTE_ID" >/dev/null
+echo "  notes ok"
+
 echo "[verify] ask"
 ASK=$(curl -sf -X POST "http://$ORCH_HOST:$ORCH_PORT/ai/ask" -H 'Content-Type: application/json' -d '{"question":"这条在说什么？"}')
 echo "$ASK" | python -c "import sys,json; d=json.load(sys.stdin); assert d.get('answer'), d"

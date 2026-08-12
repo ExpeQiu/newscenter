@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, type DigestVaultFile, type DigestVaultStatus } from "@/lib/api";
-import { HtmlPreview, digestVaultRawUrl } from "@/components/HtmlPreview";
+import { SelectableDigestHtml } from "@/components/HtmlPreview";
+import { SelectionNoteMenu } from "@/components/SelectionNoteMenu";
 
 function formatMtime(iso: string): string {
   if (!iso) return "—";
@@ -18,13 +19,22 @@ export default function DigestPage() {
   const [source, setSource] = useState<string>("all");
   const [files, setFiles] = useState<DigestVaultFile[]>([]);
   const [selected, setSelected] = useState<DigestVaultFile | null>(null);
+  const [html, setHtml] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  const openFile = useCallback((f: DigestVaultFile) => {
+  const openFile = useCallback(async (f: DigestVaultFile) => {
     setSelected(f);
     setErr(null);
+    setHtml("");
     console.info("[digest] open source=%s path=%s", f.source_id, f.path);
+    try {
+      const doc = await api.digestVaultFile(f.source_id, f.path);
+      setHtml(doc.html || "");
+    } catch (e) {
+      console.error("[digest] load html failed", e);
+      setErr(e instanceof Error ? e.message : "加载 HTML 失败");
+    }
   }, []);
 
   const refresh = useCallback(async () => {
@@ -44,9 +54,10 @@ export default function DigestPage() {
       });
       setFiles(list.files);
       if (list.files.length) {
-        openFile(list.files[0]);
+        await openFile(list.files[0]);
       } else {
         setSelected(null);
+        setHtml("");
       }
     } catch (e) {
       console.error("[digest] vault load failed", e);
@@ -61,6 +72,7 @@ export default function DigestPage() {
   }, [refresh]);
 
   const sources = status?.sources ?? [];
+  const digestDate = selected?.mtime ? selected.mtime.slice(0, 10) : null;
 
   return (
     <div className="animate-fade-up space-y-6">
@@ -71,7 +83,7 @@ export default function DigestPage() {
         </h1>
         <p className="mt-3 max-w-3xl text-sm text-[var(--body)]">
           按 <code className="text-xs">digest-sources.yml</code> 定义来源目录，直接读取其中的 HTML
-          并展示（参考 AgentCenter 输出物）。
+          并展示。划选文字后右键可加入笔记。
         </p>
       </header>
 
@@ -148,12 +160,24 @@ export default function DigestPage() {
               {selected.source_label} · {selected.path} · {formatMtime(selected.mtime)}
             </p>
           ) : null}
-          {selected ? (
-            <HtmlPreview
-              key={`${selected.source_id}:${selected.path}`}
-              src={digestVaultRawUrl(selected.source_id, selected.path)}
-              title={selected.name}
-            />
+          {selected && html ? (
+            <SelectionNoteMenu
+              source={{
+                source_kind: "digest",
+                digest_date: digestDate,
+                source_title: selected.name || selected.path,
+                source_url: `/digest`,
+              }}
+            >
+              <SelectableDigestHtml
+                key={`${selected.source_id}:${selected.path}`}
+                html={html}
+                title={selected.name}
+                className="max-h-[78vh] overflow-y-auto"
+              />
+            </SelectionNoteMenu>
+          ) : selected ? (
+            <p className="text-sm text-[var(--muted)]">加载正文…</p>
           ) : (
             <div className="rounded-md bg-[var(--surface)] px-4 py-5 text-sm text-[var(--body)]">
               选择左侧 HTML 文件以预览。配置见仓库根目录{" "}

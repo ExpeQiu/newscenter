@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, type Item } from "@/lib/api";
 import { DigestMarkdown } from "@/components/DigestMarkdown";
-import { HtmlPreview } from "@/components/HtmlPreview";
+import { SelectableDigestHtml } from "@/components/HtmlPreview";
 import { ItemThumb } from "@/components/ItemThumb";
+import { SelectionNoteMenu } from "@/components/SelectionNoteMenu";
 
 export default function TodayPage() {
   const [digest, setDigest] = useState<{
@@ -78,12 +79,30 @@ export default function TodayPage() {
             。
           </div>
         ) : digest.markdown ? (
-          <DigestMarkdown
-            content={digest.markdown}
-            className="rounded-md bg-[var(--surface)]/70 px-4 py-5 text-[15px] leading-relaxed"
-          />
+          <SelectionNoteMenu
+            source={{
+              source_kind: "digest",
+              digest_date: digest.date,
+              source_title: `今日洞察 · ${digest.date}`,
+              source_url: "/digest",
+            }}
+          >
+            <DigestMarkdown
+              content={digest.markdown}
+              className="rounded-md bg-[var(--surface)]/70 px-4 py-5 text-[15px] leading-relaxed"
+            />
+          </SelectionNoteMenu>
         ) : (
-          <HtmlPreview content={digest.html} title={`今日洞察 · ${digest.date}`} />
+          <SelectionNoteMenu
+            source={{
+              source_kind: "digest",
+              digest_date: digest.date,
+              source_title: `今日洞察 · ${digest.date}`,
+              source_url: "/digest",
+            }}
+          >
+            <SelectableDigestHtml html={digest.html || ""} title={`今日洞察 · ${digest.date}`} />
+          </SelectionNoteMenu>
         )}
       </section>
 

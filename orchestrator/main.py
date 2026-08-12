@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
 from intelligence.factory import create_provider  # noqa: E402
 from intelligence.providers.minimax import minimax_reachable  # noqa: E402
 from intelligence.providers.openclaw import gateway_reachable  # noqa: E402
-from orchestrator.api import ai, cloud_sync, digests, ingest, items, pipelines, sources  # noqa: E402
+from orchestrator.api import ai, cloud_sync, digests, ingest, items, notes, pipelines, sources  # noqa: E402
 from orchestrator.auth import ApiTokenMiddleware  # noqa: E402
 from pipeline.db import init_db  # noqa: E402
 from pipeline.settings import get_settings  # noqa: E402
@@ -39,6 +39,7 @@ app.add_middleware(
 app.add_middleware(ApiTokenMiddleware)
 
 app.include_router(items.router)
+app.include_router(notes.router)
 app.include_router(digests.router)
 app.include_router(sources.router)
 app.include_router(ingest.router)
