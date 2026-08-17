@@ -17,7 +17,7 @@ from newsc_cli.exit_codes import EXIT_API, EXIT_EMPTY, EXIT_OK, EXIT_VALID
 console = Console(stderr=True)
 logger = logging.getLogger("newsc.cli")
 
-PIPELINE_IDS = ("rss", "youtube", "bilibili", "all-demo", "sources")
+PIPELINE_IDS = ("rss", "youtube", "bilibili", "all-demo", "sources", "insight")
 SOURCE_TYPES = ("web", "rss", "social", "bilibili", "youtube")
 
 
@@ -84,12 +84,20 @@ def pipeline_group() -> None:
 
 @pipeline_group.command("run")
 @click.argument("pipeline_id", type=click.Choice(PIPELINE_IDS, case_sensitive=False))
+@click.option("--force", is_flag=True, default=False, help="insight: 忽略 refresh_interval")
+@click.option(
+    "--kind",
+    type=click.Choice(["all", "event", "macro"], case_sensitive=False),
+    default="all",
+    show_default=True,
+    help="insight: 仅跑事件或宏观",
+)
 @click.pass_context
-def pipeline_run_cmd(ctx: click.Context, pipeline_id: str) -> None:
-    """POST /pipelines/{id}/run (demo ids or sources)."""
-    logger.info("pipeline_run id=%s", pipeline_id)
+def pipeline_run_cmd(ctx: click.Context, pipeline_id: str, force: bool, kind: str) -> None:
+    """POST /pipelines/{id}/run (demo ids, sources, or insight)."""
+    logger.info("pipeline_run id=%s force=%s kind=%s", pipeline_id, force, kind)
     try:
-        data = ctx.obj["client"].pipeline_run(pipeline_id)
+        data = ctx.obj["client"].pipeline_run(pipeline_id, force=force, kind=kind)
     except httpx.HTTPError as exc:
         _api_exit(exc)
     _emit(data, ctx.obj["fmt"])
@@ -387,6 +395,12 @@ def vault_source_group() -> None:
     default=None,
     help="刷新周期：15m|30m|1h|3h|6h|12h|1d|manual（默认 1d）",
 )
+@click.option(
+    "--tags",
+    "tags_csv",
+    default=None,
+    help="标签，逗号分隔，如：AI,技术",
+)
 @click.option("--disabled", is_flag=True)
 @click.pass_context
 def vault_source_add_cmd(
@@ -395,8 +409,12 @@ def vault_source_add_cmd(
     label: str,
     src_path: str,
     refresh_interval: str | None,
+    tags_csv: str | None,
     disabled: bool,
 ) -> None:
+    tags = None
+    if tags_csv is not None:
+        tags = [t.strip() for t in tags_csv.replace("，", ",").split(",") if t.strip()]
     try:
         data = ctx.obj["client"].vault_source_upsert(
             source_id=source_id,
@@ -404,6 +422,7 @@ def vault_source_add_cmd(
             path=src_path,
             enabled=not disabled,
             refresh_interval=refresh_interval,
+            tags=tags,
         )
     except httpx.HTTPError as exc:
         _api_exit(exc)

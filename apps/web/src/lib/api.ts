@@ -64,6 +64,7 @@ export type DigestVaultSource = {
   readable: boolean;
   refresh_interval?: string;
   refresh_label?: string;
+  tags?: string[];
 };
 
 export type DigestVaultStatus = {
@@ -101,6 +102,44 @@ export type Note = {
   source_title: string;
   source_url?: string | null;
   created_at?: string | null;
+};
+
+export type InsightEvent = {
+  id: string;
+  occurred_at?: string | null;
+  dimension: string;
+  industry?: string | null;
+  entity?: string | null;
+  title: string;
+  summary: string;
+  source_urls: string[];
+  query_id?: string | null;
+  created_at?: string | null;
+};
+
+export type MacroSnapshotItem = {
+  indicator_id: string;
+  label: string;
+  scope: string;
+  industry?: string | null;
+  unit: string;
+  description?: string | null;
+  latest?: {
+    id: string;
+    indicator_id: string;
+    observed_at?: string | null;
+    value?: number | null;
+    value_text?: string | null;
+    period_label: string;
+    source_urls: string[];
+  } | null;
+  history: {
+    id: string;
+    observed_at?: string | null;
+    value?: number | null;
+    value_text?: string | null;
+    period_label: string;
+  }[];
 };
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -216,6 +255,7 @@ export const api = {
     path: string;
     enabled?: boolean;
     refresh_interval?: string;
+    tags?: string[];
   }) =>
     req<DigestVaultSource>("/digests/vault/sources", {
       method: "POST",
@@ -352,6 +392,37 @@ export const api = {
     req<{ id: string; deleted: boolean }>(`/notes/${encodeURIComponent(id)}`, {
       method: "DELETE",
     }),
+  events: (opts?: {
+    dimension?: string;
+    industry?: string;
+    entity?: string;
+    limit?: number;
+  }) => {
+    const sp = new URLSearchParams();
+    if (opts?.dimension) sp.set("dimension", opts.dimension);
+    if (opts?.industry) sp.set("industry", opts.industry);
+    if (opts?.entity) sp.set("entity", opts.entity);
+    if (opts?.limit) sp.set("limit", String(opts.limit));
+    const qs = sp.toString();
+    return req<{ events: InsightEvent[]; count: number }>(`/events${qs ? `?${qs}` : ""}`);
+  },
+  event: (id: string) => req<InsightEvent>(`/events/${encodeURIComponent(id)}`),
+  macroSnapshot: (opts?: { scope?: string; industry?: string }) => {
+    const sp = new URLSearchParams();
+    if (opts?.scope) sp.set("scope", opts.scope);
+    if (opts?.industry) sp.set("industry", opts.industry);
+    const qs = sp.toString();
+    return req<{ items: MacroSnapshotItem[]; count: number }>(
+      `/macro/snapshot${qs ? `?${qs}` : ""}`
+    );
+  },
+  runInsight: (opts?: { force?: boolean; kind?: "all" | "event" | "macro" }) => {
+    const sp = new URLSearchParams();
+    if (opts?.force) sp.set("force", "true");
+    if (opts?.kind) sp.set("kind", opts.kind);
+    const qs = sp.toString();
+    return req(`/pipelines/insight/run${qs ? `?${qs}` : ""}`, { method: "POST" });
+  },
 };
 
 export { API_BASE };

@@ -4,6 +4,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT="${NEWSC_ROOT:-$ROOT}"
 cd "$ROOT"
 LOG_DIR="$ROOT/logs"
 mkdir -p "$LOG_DIR"
@@ -12,7 +13,12 @@ LOG="$LOG_DIR/sync-vault-to-cloud.log"
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
 
 # shellcheck disable=SC1091
-[[ -f "$ROOT/.env.cloud.local" ]] && set -a && source "$ROOT/.env.cloud.local" && set +a
+APP_ENV="${HOME}/Library/Application Support/newsc/.env.cloud.local"
+if [[ -f "$APP_ENV" ]]; then
+  set -a && source "$APP_ENV" && set +a
+elif [[ -f "$ROOT/.env.cloud.local" ]]; then
+  set -a && source "$ROOT/.env.cloud.local" && set +a
+fi
 
 HOST="${DEPLOY_HOST:-120.25.145.131}"
 REMOTE_USER="${DEPLOY_USER:-root}"

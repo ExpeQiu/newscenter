@@ -1,6 +1,7 @@
 # NewsC 日报来源（参考 AgentCenter 输出物：定义目录 → 只读 HTML）
 # path 可为绝对路径，或相对仓库根目录
 # refresh_interval 可选：15m|30m|1h|3h|6h|12h|1d|manual（默认 1d）
+# tags 可选：标签列表，用于日报页快捷筛选，如 [AI, 技术]
 #
 # 个人/本机路径请写到 digest-sources.local.yml（已 gitignore），会与本文件按 id 合并（local 覆盖）。
 
@@ -10,3 +11,4 @@ sources:
   path: daily
   enabled: true
   refresh_interval: 1d
+  tags: []

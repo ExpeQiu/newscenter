@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation";
 const tabs = [
   { href: "/", label: "今日" },
   { href: "/digest", label: "日报" },
+  { href: "/events", label: "事件" },
+  { href: "/data", label: "数据" },
   { href: "/feed", label: "浏览" },
   { href: "/saved", label: "收藏" },
   { href: "/notes", label: "笔记" },
@@ -17,14 +19,14 @@ export function BottomNav() {
   const path = usePathname();
   return (
     <nav className="fixed bottom-0 inset-x-0 z-40 border-t border-[var(--line)] bg-[var(--bg)]/95 backdrop-blur md:hidden">
-      <ul className="grid grid-cols-7 text-[11px] sm:text-sm">
+      <ul className="flex overflow-x-auto text-[11px] sm:text-sm scrollbar-none">
         {tabs.map((t) => {
           const active = t.href === "/" ? path === "/" : path.startsWith(t.href);
           return (
-            <li key={t.href}>
+            <li key={t.href} className="shrink-0">
               <Link
                 href={t.href}
-                className={`flex items-center justify-center py-3 transition-colors ${
+                className={`flex items-center justify-center px-3 py-3 transition-colors ${
                   active ? "text-[var(--accent)] font-medium" : "text-[var(--muted)]"
                 }`}
               >

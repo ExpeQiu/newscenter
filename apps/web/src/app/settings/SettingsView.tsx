@@ -24,6 +24,7 @@ const CLI_GROUPS: CliGroup[] = [
     entries: [
       { cmd: "newsc --format json health", desc: "健康检查" },
       { cmd: "newsc --format json pipeline run rss|youtube|bilibili|all-demo|sources", desc: "跑采集管道（sources 消费启用订阅）" },
+      { cmd: "newsc --format json pipeline run insight --force", desc: "事件/宏观检索入库（可 --kind event|macro）" },
       { cmd: "newsc --format json ai process --limit 20", desc: "处理 AI Jobs（可用 --no-digest）" },
       { cmd: "newsc --format json vault status", desc: "日报 vault 状态" },
       { cmd: "newsc --format json vault files --source <id>", desc: "列出 vault HTML" },
@@ -242,6 +243,54 @@ export default function SettingsPage() {
       <section className="rounded-md bg-[var(--surface)] px-4 py-3 text-sm">
         <div>API：{health?.ok ? "正常" : "未知"}</div>
         <div>AI Provider：{health?.ai_provider ?? "—"}</div>
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="font-[family-name:var(--font-display)] text-xl">事件与数据</h2>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            按 <code className="text-[var(--ink)]">insight-queries.yml</code>{" "}
+            检索入库，供「事件」「数据」页展示。真模式走当前 AI Provider。
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded-md bg-[var(--ink)] px-3 py-2 text-sm text-[var(--bg)] disabled:opacity-50"
+            onClick={() => run("检索事件+数据", () => api.runInsight({ force: true, kind: "all" }))}
+          >
+            立即检索（全部）
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded-md border border-[var(--line)] px-3 py-2 text-sm disabled:opacity-50"
+            onClick={() => run("仅检索事件", () => api.runInsight({ force: true, kind: "event" }))}
+          >
+            仅事件
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded-md border border-[var(--line)] px-3 py-2 text-sm disabled:opacity-50"
+            onClick={() => run("仅检索宏观", () => api.runInsight({ force: true, kind: "macro" }))}
+          >
+            仅数据
+          </button>
+          <Link
+            href="/events"
+            className="rounded-md border border-[var(--line)] px-3 py-2 text-sm text-[var(--body)]"
+          >
+            打开事件
+          </Link>
+          <Link
+            href="/data"
+            className="rounded-md border border-[var(--line)] px-3 py-2 text-sm text-[var(--body)]"
+          >
+            打开数据
+          </Link>
+        </div>
       </section>
 
       <section className="space-y-4">

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # 安装 / 卸载 Mac→云 整库推送 LaunchAgent
+# 包装器装在 ~/Library/Application Support/newsc，避免 iCloud 路径被 launchd TCC 拒绝。
 # 配置来自 .env.cloud.local：
 #   PUSH_SCHEDULE_ENABLED=1|0
 #   PUSH_SCHEDULE_MODE=daily|interval
@@ -7,10 +8,11 @@
 #   PUSH_SCHEDULE_INTERVAL_HOURS=6               # interval
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+APP_SUPPORT="${HOME}/Library/Application Support/newsc"
 LABEL="com.newsc.push-db-cloud"
 PLIST="$HOME/Library/LaunchAgents/${LABEL}.plist"
-PUSH="$ROOT/scripts/deploy/push-db-to-cloud.sh"
-LOG_DIR="$ROOT/logs"
+WRAPPER="${APP_SUPPORT}/run-push-db-cloud.sh"
+LOG_DIR="${APP_SUPPORT}/logs"
 ACTION="${1:-install}"
 
 # shellcheck disable=SC1091
@@ -47,8 +49,34 @@ if [[ "$ENABLED" != "1" && "$ENABLED" != "true" && "$ENABLED" != "yes" ]]; then
   exit 0
 fi
 
-chmod +x "$PUSH"
-mkdir -p "$LOG_DIR"
+mkdir -p "$LOG_DIR" "$ROOT/logs"
+
+DEPLOY_COPY="${APP_SUPPORT}/deploy"
+mkdir -p "$DEPLOY_COPY"
+# 副本放在 Application Support，避免 launchd 执行 iCloud 路径脚本被 TCC 拒绝 (exit 126)
+for f in push-db-to-cloud.sh db-tunnel.sh sync-vault-to-cloud.sh strip-pg18-dump.py compare-db-counts.py; do
+  cp "$ROOT/scripts/deploy/$f" "$DEPLOY_COPY/$f"
+done
+chmod +x "$DEPLOY_COPY"/*.sh
+
+if [[ -f "$ROOT/.env.cloud.local" ]]; then
+  cp "$ROOT/.env.cloud.local" "${APP_SUPPORT}/.env.cloud.local"
+  echo "[push-db-cloud] synced env → ${APP_SUPPORT}/.env.cloud.local"
+fi
+
+cat > "${WRAPPER}" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+export NEWSC_ROOT="${ROOT}"
+export HOME="${HOME}"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:\${PATH:-}"
+cd "\$NEWSC_ROOT" || {
+  echo "[push-db-cloud] cd NEWSC_ROOT failed: \$NEWSC_ROOT" >&2
+  exit 1
+}
+exec /bin/bash "${DEPLOY_COPY}/push-db-to-cloud.sh" "\$@"
+EOF
+chmod +x "${WRAPPER}"
 
 SCHEDULE_XML=""
 if [[ "$MODE" == "interval" ]]; then
@@ -100,15 +128,15 @@ cat > "$PLIST" <<EOF
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>${PUSH}</string>
+    <string>${WRAPPER}</string>
   </array>
   <key>RunAtLoad</key>
   <false/>
 ${SCHEDULE_XML}
   <key>StandardOutPath</key>
-  <string>${LOG_DIR}/push-db-cloud-launchd.log</string>
+  <string>${LOG_DIR}/push-db-cloud-launchd.out</string>
   <key>StandardErrorPath</key>
-  <string>${LOG_DIR}/push-db-cloud-launchd-err.log</string>
+  <string>${LOG_DIR}/push-db-cloud-launchd.err</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
@@ -124,4 +152,5 @@ launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
 echo "[push-db-cloud] 已安装: $PLIST"
-echo "[push-db-cloud] 手动: bash $PUSH"
+echo "[push-db-cloud] wrapper: $WRAPPER"
+echo "[push-db-cloud] 手动: bash $ROOT/scripts/deploy/push-db-to-cloud.sh"

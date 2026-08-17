@@ -86,9 +86,24 @@ def test_upsert_toggle_delete_source(tmp_path: Path, monkeypatch: pytest.MonkeyP
         label="Demo",
         path=str(html_dir),
         enabled=True,
+        tags=["AI", "技术"],
     )
     assert created["id"] == "demo"
     assert created["readable"] is True
+    assert created["tags"] == ["AI", "技术"]
+
+    status = vault.vault_status()
+    demo = next(s for s in status["sources"] if s["id"] == "demo")
+    assert demo["tags"] == ["AI", "技术"]
+
+    cleared = vault.upsert_source(
+        source_id="demo",
+        label="Demo",
+        path=str(html_dir),
+        enabled=True,
+        tags=[],
+    )
+    assert cleared["tags"] == []
 
     disabled = vault.set_source_enabled("demo", False)
     assert disabled["enabled"] is False
@@ -98,3 +113,9 @@ def test_upsert_toggle_delete_source(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert vault.vault_status()["sources"] == []
 
     vault.get_settings.cache_clear()
+
+
+def test_normalize_tags_from_csv_string() -> None:
+    assert vault._normalize_tags("AI, 技术，知识") == ("AI", "技术", "知识")
+    assert vault._normalize_tags(["AI", "AI", "  "]) == ("AI",)
+    assert vault._normalize_tags(None) == ()

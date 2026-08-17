@@ -270,6 +270,7 @@ class VaultSourceBody(BaseModel):
     path: str = Field(..., min_length=1, max_length=2000)
     enabled: bool = True
     refresh_interval: Optional[str] = Field(None, max_length=32)
+    tags: Optional[list[str]] = None
 
 
 class VaultSourceToggle(BaseModel):
@@ -285,6 +286,7 @@ def upsert_vault_source(body: VaultSourceBody, db: Session = Depends(get_db)) ->
             path=body.path,
             enabled=body.enabled,
             refresh_interval=body.refresh_interval,
+            tags=body.tags,
         )
     except DigestVaultError as exc:
         raise HTTPException(exc.status_code, str(exc)) from exc
@@ -297,10 +299,11 @@ def upsert_vault_source(body: VaultSourceBody, db: Session = Depends(get_db)) ->
             "path": body.path,
             "enabled": body.enabled,
             "refresh_interval": body.refresh_interval,
+            "tags": body.tags,
         },
     )
     db.commit()
-    logger.info("vault_source_upsert id=%s cloud=%s", body.id, is_cloud_runtime())
+    logger.info("vault_source_upsert id=%s tags=%s cloud=%s", body.id, body.tags, is_cloud_runtime())
     return out
 
 

@@ -9,8 +9,14 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT="${NEWSC_ROOT:-$ROOT}"
 # shellcheck disable=SC1091
-[[ -f "$ROOT/.env.cloud.local" ]] && set -a && source "$ROOT/.env.cloud.local" && set +a
+APP_ENV="${HOME}/Library/Application Support/newsc/.env.cloud.local"
+if [[ -f "$APP_ENV" ]]; then
+  set -a && source "$APP_ENV" && set +a
+elif [[ -f "$ROOT/.env.cloud.local" ]]; then
+  set -a && source "$ROOT/.env.cloud.local" && set +a
+fi
 
 HOST="${DEPLOY_HOST:-120.25.145.131}"
 LOCAL_PORT="${NEWSC_TUNNEL_LOCAL_PORT:-15434}"

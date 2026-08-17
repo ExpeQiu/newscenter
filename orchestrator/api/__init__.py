@@ -1,4 +1,15 @@
 """Orchestrator API routers."""
-from orchestrator.api import ai, cloud_sync, digests, ingest, items, notes, pipelines, sources
+from orchestrator.api import ai, cloud_sync, digests, events, ingest, items, macro, notes, pipelines, sources
 
-__all__ = ["ai", "cloud_sync", "digests", "ingest", "items", "notes", "pipelines", "sources"]
+__all__ = [
+    "ai",
+    "cloud_sync",
+    "digests",
+    "events",
+    "ingest",
+    "items",
+    "macro",
+    "notes",
+    "pipelines",
+    "sources",
+]

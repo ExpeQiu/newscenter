@@ -46,6 +46,7 @@ newsc --version
 newsc --format json health
 newsc --format json pipeline run rss
 newsc --format json pipeline run sources
+newsc --format json pipeline run insight --force
 newsc --format json ai process --limit 50
 newsc --format json vault status
 newsc --format json sources list

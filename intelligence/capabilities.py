@@ -12,6 +12,10 @@ from intelligence.contracts import (
     DigestOut,
     RecommendIn,
     RecommendOut,
+    RetrieveEventsIn,
+    RetrieveEventsOut,
+    RetrieveMacroIn,
+    RetrieveMacroOut,
     SummarizeIn,
     SummarizeOut,
 )
@@ -30,3 +34,7 @@ class IntelligenceProvider(Protocol):
     def recommend(self, payload: RecommendIn) -> RecommendOut: ...
 
     def ask(self, payload: AskIn) -> AskOut: ...
+
+    def retrieve_events(self, payload: RetrieveEventsIn) -> RetrieveEventsOut: ...
+
+    def retrieve_macro(self, payload: RetrieveMacroIn) -> RetrieveMacroOut: ...

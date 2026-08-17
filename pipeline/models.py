@@ -5,6 +5,8 @@ from datetime import date, datetime
 from typing import Any, Optional
 from uuid import uuid4
 
+from decimal import Decimal
+
 from sqlalchemy import (
     Boolean,
     Date,
@@ -12,6 +14,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -274,3 +277,66 @@ class ControlSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class InsightEvent(Base):
+    """检索得到的重要事件（时间轴）。"""
+
+    __tablename__ = "insight_events"
+    __table_args__ = (UniqueConstraint("content_hash", name="uq_insight_events_content_hash"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    dimension: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    industry: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    entity: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source_urls: Mapped[list[Any]] = mapped_column(JSONB, default=list)
+    query_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    raw: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MacroIndicator(Base):
+    """宏观 / 行业指标元数据。"""
+
+    __tablename__ = "macro_indicators"
+
+    indicator_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    label: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    scope: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    industry: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    unit: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class MacroObservation(Base):
+    """指标观测点。"""
+
+    __tablename__ = "macro_observations"
+    __table_args__ = (
+        UniqueConstraint(
+            "indicator_id",
+            "observed_at",
+            "period_label",
+            name="uq_macro_obs_indicator_time_period",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    indicator_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("macro_indicators.indicator_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    value: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6), nullable=True)
+    value_text: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    period_label: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    source_urls: Mapped[list[Any]] = mapped_column(JSONB, default=list)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    raw: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

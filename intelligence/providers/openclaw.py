@@ -16,6 +16,10 @@ from intelligence.contracts import (
     DigestOut,
     RecommendIn,
     RecommendOut,
+    RetrieveEventsIn,
+    RetrieveEventsOut,
+    RetrieveMacroIn,
+    RetrieveMacroOut,
     SummarizeIn,
     SummarizeOut,
 )
@@ -187,6 +191,39 @@ class OpenClawProvider:
             )
         self._on_fallback("newsc-ask")
         out = self._fallback.ask(payload)
+        out.model_meta = {**out.model_meta, "fallback": True, "wanted": self.name}
+        return out
+
+    def retrieve_events(self, payload: RetrieveEventsIn) -> RetrieveEventsOut:
+        self.call_count += 1
+        data = self._try_hook("newsc-retrieve-events", payload.model_dump(mode="json"))
+        if data and isinstance(data.get("events"), list):
+            return RetrieveEventsOut.model_validate(
+                {
+                    "events": data["events"],
+                    "model_meta": {"provider": self.name, **(data.get("model_meta") or {})},
+                }
+            )
+        self._on_fallback("newsc-retrieve-events")
+        out = self._fallback.retrieve_events(payload)
+        out.model_meta = {**out.model_meta, "fallback": True, "wanted": self.name}
+        return out
+
+    def retrieve_macro(self, payload: RetrieveMacroIn) -> RetrieveMacroOut:
+        self.call_count += 1
+        data = self._try_hook("newsc-retrieve-macro", payload.model_dump(mode="json"))
+        if data and isinstance(data.get("observations"), list):
+            return RetrieveMacroOut.model_validate(
+                {
+                    "observations": data["observations"],
+                    "label": data.get("label"),
+                    "unit": data.get("unit"),
+                    "description": data.get("description"),
+                    "model_meta": {"provider": self.name, **(data.get("model_meta") or {})},
+                }
+            )
+        self._on_fallback("newsc-retrieve-macro")
+        out = self._fallback.retrieve_macro(payload)
         out.model_meta = {**out.model_meta, "fallback": True, "wanted": self.name}
         return out
 

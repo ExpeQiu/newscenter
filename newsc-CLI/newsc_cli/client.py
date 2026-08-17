@@ -46,8 +46,18 @@ class NewsCClient:
     def health(self) -> dict[str, Any]:
         return self._request("GET", "/health")
 
-    def pipeline_run(self, pipeline_id: str) -> dict[str, Any]:
-        return self._request("POST", f"/pipelines/{pipeline_id}/run")
+    def pipeline_run(
+        self,
+        pipeline_id: str,
+        *,
+        force: bool = False,
+        kind: str = "all",
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {}
+        if pipeline_id == "insight":
+            params["force"] = "true" if force else "false"
+            params["kind"] = kind
+        return self._request("POST", f"/pipelines/{pipeline_id}/run", params=params or None)
 
     def ai_process(self, *, limit: int = 20, include_digest: bool = True) -> dict[str, Any]:
         return self._request(
@@ -134,6 +144,7 @@ class NewsCClient:
         path: str,
         enabled: bool = True,
         refresh_interval: str | None = None,
+        tags: list[str] | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "id": source_id,
@@ -143,6 +154,8 @@ class NewsCClient:
         }
         if refresh_interval is not None:
             body["refresh_interval"] = refresh_interval
+        if tags is not None:
+            body["tags"] = tags
         return self._request(
             "POST",
             "/digests/vault/sources",

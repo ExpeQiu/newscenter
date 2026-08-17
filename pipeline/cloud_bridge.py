@@ -1,9 +1,10 @@
-"""Mac ↔ 云 控制面桥接：合并 marks、消费 outbox、执行指令。
+"""Mac ↔ 云 控制面桥接：合并 marks、消费 outbox、对账 sources、执行指令。
 
 用法:
-  python -m pipeline.cloud_bridge           # 拉 marks + drain outbox
+  python -m pipeline.cloud_bridge           # marks + outbox + sources
   python -m pipeline.cloud_bridge --marks-only
   python -m pipeline.cloud_bridge --drain-only
+  python -m pipeline.cloud_bridge --sources-only
 """
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ import logging
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +30,15 @@ from pipeline.models import CloudOutbox, Item, Mark, Source  # noqa: E402
 
 logger = logging.getLogger("newsc.cloud_bridge")
 
+# 仓库内配置；launchd 在 iCloud 路径下可能无法读取，故同时支持 Application Support 副本
 CLOUD_ENV = ROOT / ".env.cloud.local"
+CLOUD_ENV_APP_SUPPORT = Path.home() / "Library" / "Application Support" / "newsc" / ".env.cloud.local"
+
+
+def _cloud_env_path() -> Path:
+    if CLOUD_ENV_APP_SUPPORT.is_file():
+        return CLOUD_ENV_APP_SUPPORT
+    return CLOUD_ENV
 
 
 def _load_dotenv_file(path: Path) -> dict[str, str]:
@@ -52,10 +61,10 @@ def _normalize_sa_url(url: str) -> str:
 
 
 def _cloud_session() -> Session:
-    env = _load_dotenv_file(CLOUD_ENV)
+    env = _load_dotenv_file(_cloud_env_path())
     raw = os.environ.get("CLOUD_DATABASE_URL") or env.get("CLOUD_DATABASE_URL") or ""
     if not raw.strip():
-        raise RuntimeError("缺少 CLOUD_DATABASE_URL（.env.cloud.local）")
+        raise RuntimeError("缺少 CLOUD_DATABASE_URL（.env.cloud.local 或 Application Support 副本）")
     engine = create_engine(
         _normalize_sa_url(raw),
         pool_pre_ping=True,
@@ -68,7 +77,7 @@ def _ensure_tunnel() -> None:
     script = ROOT / "scripts" / "deploy" / "db-tunnel.sh"
     if not script.is_file():
         return
-    env = _load_dotenv_file(CLOUD_ENV)
+    env = _load_dotenv_file(_cloud_env_path())
     port = int(env.get("NEWSC_TUNNEL_LOCAL_PORT") or os.environ.get("NEWSC_TUNNEL_LOCAL_PORT") or "15434")
     try:
         import socket
@@ -157,11 +166,15 @@ def _write_cloud_env(values: dict[str, str]) -> None:
         f"PUSH_SCHEDULE_INTERVAL_HOURS={values.get('PUSH_SCHEDULE_INTERVAL_HOURS', '6')}",
         "",
     ]
-    CLOUD_ENV.write_text("\n".join(lines), encoding="utf-8")
-    try:
-        os.chmod(CLOUD_ENV, 0o600)
-    except OSError:
-        pass
+    text = "\n".join(lines)
+    for path in (CLOUD_ENV, CLOUD_ENV_APP_SUPPORT):
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+            os.chmod(path, 0o600)
+        except OSError as exc:
+            logger.warning("cloud_env_write_fail path=%s err=%s", path, exc)
+    logger.info("cloud_env_written paths=%s", [str(CLOUD_ENV), str(CLOUD_ENV_APP_SUPPORT)])
 
 
 def _apply_source_upsert(local: Session, payload: dict[str, Any]) -> dict[str, Any]:
@@ -185,6 +198,92 @@ def _apply_source_upsert(local: Session, payload: dict[str, Any]) -> dict[str, A
     local.commit()
     logger.info("outbox_source_upsert id=%s action=%s", sid, action)
     return {"id": sid, "action": action}
+
+
+def reconcile_sources_from_cloud(*, local: Session, cloud: Session) -> dict[str, int]:
+    """云端 sources 按 id 下行 upsert 到本机。
+
+    采集真源在 Mac：若只依赖 outbox 且 Agent 曾中断，云端新增的 YouTube 等源会丢，
+    随后 push-db 还会用本机缺源快照盖掉云端。每次 bridge 对账一次以自愈。
+    不覆盖本机 cursor（增量游标以本机采集为准）。
+    """
+    cloud_rows = cloud.query(Source).all()
+    created = 0
+    updated = 0
+    unchanged = 0
+    for cs in cloud_rows:
+        row = local.query(Source).filter(Source.id == cs.id).first()
+        cfg = dict(cs.config or {})
+        if row is None:
+            local.add(
+                Source(
+                    id=cs.id,
+                    name=cs.name,
+                    type=cs.type,
+                    config=cfg,
+                    enabled=bool(cs.enabled),
+                    cursor=dict(cs.cursor) if isinstance(cs.cursor, dict) else cs.cursor,
+                )
+            )
+            created += 1
+            continue
+        same = (
+            row.name == cs.name
+            and row.type == cs.type
+            and (row.config or {}) == cfg
+            and bool(row.enabled) == bool(cs.enabled)
+        )
+        if same:
+            unchanged += 1
+            continue
+        row.name = cs.name
+        row.type = cs.type
+        row.config = cfg
+        row.enabled = bool(cs.enabled)
+        updated += 1
+    local.commit()
+    logger.info(
+        "sources_reconcile created=%s updated=%s unchanged=%s cloud_total=%s",
+        created,
+        updated,
+        unchanged,
+        len(cloud_rows),
+    )
+    return {
+        "created": created,
+        "updated": updated,
+        "unchanged": unchanged,
+        "cloud_total": len(cloud_rows),
+    }
+
+
+def requeue_stale_outbox_claims(
+    cloud: Session, *, older_than_sec: int = 900
+) -> dict[str, int]:
+    """将长时间卡在 claimed 的 outbox 重新置为 pending，避免 Agent 崩溃后指令丢失。"""
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=older_than_sec)
+    rows = (
+        cloud.query(CloudOutbox)
+        .filter(CloudOutbox.status == "claimed", CloudOutbox.claimed_at.isnot(None))
+        .all()
+    )
+    n = 0
+    for row in rows:
+        claimed = row.claimed_at
+        if claimed is not None and claimed.tzinfo is None:
+            claimed = claimed.replace(tzinfo=timezone.utc)
+        if claimed is None or claimed > cutoff:
+            continue
+        row.status = "pending"
+        row.claimed_at = None
+        prev = (row.error or "").strip()
+        note = "requeued_stale_claim"
+        row.error = f"{prev} | {note}" if prev else note
+        n += 1
+    if n:
+        cloud.commit()
+    logger.info("outbox_requeue_stale claimed_reset=%s older_than_sec=%s", n, older_than_sec)
+    return {"requeued": n}
 
 
 def _apply_source_delete(local: Session, payload: dict[str, Any]) -> dict[str, Any]:
@@ -224,11 +323,12 @@ def _apply_vault_source(payload: dict[str, Any], *, delete: bool = False) -> dic
         path=path,
         enabled=bool(payload.get("enabled", True)),
         refresh_interval=payload.get("refresh_interval"),
+        tags=payload.get("tags"),
     )
 
 
 def _apply_sync_config(payload: dict[str, Any]) -> dict[str, Any]:
-    existing = _load_dotenv_file(CLOUD_ENV)
+    existing = _load_dotenv_file(_cloud_env_path())
     cloud_url = str(payload.get("cloud_database_url") or "").strip()
     if not cloud_url or "***" in cloud_url:
         cloud_url = existing.get("CLOUD_DATABASE_URL", "")
@@ -312,7 +412,15 @@ def _apply_one(local: Session, row: CloudOutbox) -> dict[str, Any]:
 
         pid = str(payload.get("pipeline_id") or "sources")
         base = os.environ.get("NEWSC_API_URL") or "http://127.0.0.1:8787"
-        r = httpx.post(f"{base.rstrip('/')}/pipelines/{pid}/run", timeout=120)
+        params: dict[str, Any] = {}
+        if pid == "insight":
+            params["force"] = "true" if payload.get("force") else "false"
+            params["kind"] = str(payload.get("kind") or "all")
+        r = httpx.post(
+            f"{base.rstrip('/')}/pipelines/{pid}/run",
+            params=params or None,
+            timeout=180,
+        )
         r.raise_for_status()
         return r.json()
     raise ValueError(f"unknown outbox kind: {kind}")
@@ -323,6 +431,7 @@ def drain_outbox(*, local: Session, cloud: Session, limit: int = 50) -> dict[str
     from pipeline.models import Base
 
     Base.metadata.create_all(bind=cloud.get_bind())
+    requeue_stale_outbox_claims(cloud)
 
     skip_raw = (os.environ.get("CLOUD_BRIDGE_SKIP_KINDS") or "").strip()
     skip = {k.strip() for k in skip_raw.split(",") if k.strip()}
@@ -362,7 +471,12 @@ def drain_outbox(*, local: Session, cloud: Session, limit: int = 50) -> dict[str
     return {"claimed": len(rows), "done": done, "failed": failed, "results": results}
 
 
-def run_once(*, marks: bool = True, drain: bool = True) -> dict[str, Any]:
+def run_once(
+    *,
+    marks: bool = True,
+    drain: bool = True,
+    sources: bool = True,
+) -> dict[str, Any]:
     init_db()
     _ensure_tunnel()
     local = SessionLocal()
@@ -377,6 +491,9 @@ def run_once(*, marks: bool = True, drain: bool = True) -> dict[str, Any]:
             out["marks"] = merge_marks_from_cloud(local=local, cloud=cloud)
         if drain:
             out["outbox"] = drain_outbox(local=local, cloud=cloud)
+        # 源对账放在 outbox 之后：删除指令先落地，再补齐仍存在于云端的源
+        if sources:
+            out["sources"] = reconcile_sources_from_cloud(local=local, cloud=cloud)
         logger.info("cloud_bridge_ok keys=%s", list(out.keys()))
         return out
     finally:
@@ -392,15 +509,25 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Mac ← 云 控制面桥接")
     p.add_argument("--marks-only", action="store_true")
     p.add_argument("--drain-only", action="store_true")
+    p.add_argument("--sources-only", action="store_true", help="仅对账云端 sources → 本机")
     args = p.parse_args(argv)
-    marks = not args.drain_only
-    drain = not args.marks_only
-    if args.marks_only:
+    marks = True
+    drain = True
+    sources = True
+    if args.sources_only:
+        marks = drain = False
+        sources = True
+    elif args.marks_only:
+        marks = True
         drain = False
-    if args.drain_only:
+        # 推库前 marks-only 也必须对账源，避免缺源 dump 盖掉云端订阅
+        sources = True
+    elif args.drain_only:
         marks = False
+        drain = True
+        sources = True
     try:
-        result = run_once(marks=marks, drain=drain)
+        result = run_once(marks=marks, drain=drain, sources=sources)
         print(result)
         return 0
     except Exception as exc:  # noqa: BLE001

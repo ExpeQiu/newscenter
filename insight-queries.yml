@@ -1,0 +1,424 @@
+# 事件 / 宏观数据检索查询目录（基线，可提交）
+# 本机覆盖：同目录 insight-queries.local.yml（gitignore）
+queries:
+  # —— 事件 ——
+  - id: event-global-week
+    kind: event
+    enabled: true
+    dimension: global
+    query: "past week major global geopolitical and economic events"
+    refresh_interval: 1d
+
+  - id: event-china-week
+    kind: event
+    enabled: true
+    dimension: china
+    query: "过去一周中国重要政治经济与政策事件"
+    refresh_interval: 1d
+
+  - id: event-industry-ai
+    kind: event
+    enabled: true
+    dimension: industry
+    industry: AI
+    query: "past week important AI industry news and product launches"
+    refresh_interval: 1d
+
+  - id: event-industry-semi
+    kind: event
+    enabled: true
+    dimension: industry
+    industry: 半导体
+    query: "过去一周半导体与芯片产业重要事件"
+    refresh_interval: 1d
+
+  - id: event-enterprise-nvidia
+    kind: event
+    enabled: true
+    dimension: enterprise
+    entity: NVIDIA
+    industry: AI
+    query: "NVIDIA recent major announcements earnings product launches"
+    refresh_interval: 1d
+
+  - id: event-enterprise-tsmc
+    kind: event
+    enabled: true
+    dimension: enterprise
+    entity: TSMC
+    industry: 半导体
+    query: "台积电近期重要产能扩张与技术节点新闻"
+    refresh_interval: 1d
+
+  # —— 宏观 / 行业数据 ——
+  - id: macro-us-fed-funds
+    kind: macro
+    enabled: true
+    scope: global
+    indicator_id: us.fed_funds
+    label: 美联储联邦基金利率
+    unit: "%"
+    query: "current US Federal Funds Rate target range latest"
+    refresh_interval: 1d
+
+  - id: macro-us-cpi
+    kind: macro
+    enabled: true
+    scope: global
+    indicator_id: us.cpi.yoy
+    label: 美国 CPI 同比
+    unit: "%"
+    query: "latest US CPI year over year inflation rate"
+    refresh_interval: 1d
+
+  - id: macro-cn-gdp
+    kind: macro
+    enabled: true
+    scope: china
+    indicator_id: cn.gdp.yoy
+    label: 中国 GDP 同比
+    unit: "%"
+    query: "最新中国国内生产总值 GDP 同比增速"
+    refresh_interval: 1d
+
+  - id: macro-cn-cpi
+    kind: macro
+    enabled: true
+    scope: china
+    indicator_id: cn.cpi.yoy
+    label: 中国 CPI 同比
+    unit: "%"
+    query: "最新中国居民消费价格指数 CPI 同比"
+    refresh_interval: 1d
+
+  - id: macro-cn-pmi
+    kind: macro
+    enabled: true
+    scope: china
+    indicator_id: cn.pmi.mfg
+    label: 中国官方制造业 PMI
+    unit: ""
+    query: "最新中国官方制造业采购经理人指数 PMI"
+    refresh_interval: 1d
+
+  - id: macro-ai-gpu-asp
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: AI
+    indicator_id: ai.gpu_asp
+    label: 高端 AI GPU 参考均价
+    unit: "USD"
+    query: "latest NVIDIA H100 or B100 datacenter GPU approximate ASP"
+    refresh_interval: 1d
+
+  - id: macro-ai-dram-spot
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: AI
+    indicator_id: ai.dram.ddr5_spot
+    label: DDR5 内存现货参考价
+    unit: "USD"
+    query: "latest DDR5 DRAM spot price for AI server memory modules approximate"
+    refresh_interval: 1d
+
+  - id: macro-ai-hbm-asp
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: AI
+    indicator_id: ai.hbm.asp
+    label: HBM 高带宽内存参考均价
+    unit: "USD"
+    query: "latest HBM3 or HBM3E high bandwidth memory approximate ASP per GB or stack"
+    refresh_interval: 1d
+
+  - id: macro-ai-token-gpt4o
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: AI
+    indicator_id: ai.token.gpt4o_in
+    label: GPT-4o 输入 Token 单价
+    unit: "USD/1M"
+    query: "latest OpenAI GPT-4o API input token price per 1 million tokens"
+    refresh_interval: 1d
+
+  - id: macro-ai-token-claude
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: AI
+    indicator_id: ai.token.claude_sonnet_in
+    label: Claude Sonnet 输入 Token 单价
+    unit: "USD/1M"
+    query: "latest Anthropic Claude Sonnet API input token price per 1 million tokens"
+    refresh_interval: 1d
+
+  - id: macro-ai-token-gemini
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: AI
+    indicator_id: ai.token.gemini_pro_in
+    label: Gemini Pro 输入 Token 单价
+    unit: "USD/1M"
+    query: "latest Google Gemini Pro or Gemini 2.5 Pro API input token price per 1 million tokens"
+    refresh_interval: 1d
+
+  - id: macro-ai-token-deepseek
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: AI
+    indicator_id: ai.token.deepseek_in
+    label: DeepSeek 输入 Token 单价
+    unit: "USD/1M"
+    query: "latest DeepSeek API input token price per 1 million tokens RMB or USD"
+    refresh_interval: 1d
+
+  # —— 金融端（挂中国宏观，带 industry=金融 便于筛选）——
+  - id: macro-cn-m2
+    kind: macro
+    enabled: true
+    scope: china
+    industry: 金融
+    indicator_id: cn.m2.yoy
+    label: 中国 M2 同比
+    unit: "%"
+    query: "最新中国广义货币供应量 M2 同比增速"
+    refresh_interval: 1d
+
+  - id: macro-cn-lpr-1y
+    kind: macro
+    enabled: true
+    scope: china
+    industry: 金融
+    indicator_id: cn.lpr.1y
+    label: 中国 1 年期 LPR
+    unit: "%"
+    query: "最新中国人民银行一年期贷款市场报价利率 LPR"
+    refresh_interval: 1d
+
+  - id: macro-cn-lpr-5y
+    kind: macro
+    enabled: true
+    scope: china
+    industry: 金融
+    indicator_id: cn.lpr.5y
+    label: 中国 5 年期以上 LPR
+    unit: "%"
+    query: "最新中国五年期以上贷款市场报价利率 LPR"
+    refresh_interval: 1d
+
+  - id: macro-cn-social-financing
+    kind: macro
+    enabled: true
+    scope: china
+    industry: 金融
+    indicator_id: cn.social_financing.yoy
+    label: 中国社融存量同比
+    unit: "%"
+    query: "最新中国社会融资规模存量同比增速"
+    refresh_interval: 1d
+
+  - id: macro-cn-new-loans
+    kind: macro
+    enabled: true
+    scope: china
+    industry: 金融
+    indicator_id: cn.rmb_loans.yoy
+    label: 中国人民币贷款余额同比
+    unit: "%"
+    query: "最新中国人民币贷款余额同比增速"
+    refresh_interval: 1d
+
+  # —— 行业：房地产 ——
+  - id: event-industry-re
+    kind: event
+    enabled: true
+    dimension: industry
+    industry: 房地产
+    query: "过去一周中国房地产市场政策与销售、土拍重要事件"
+    refresh_interval: 1d
+
+  - id: event-industry-finance
+    kind: event
+    enabled: true
+    dimension: industry
+    industry: 金融
+    query: "过去一周中国金融监管与银行保险资本市场重要事件"
+    refresh_interval: 1d
+
+  - id: macro-cn-re-price-70
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: 房地产
+    indicator_id: cn.re.price_70.yoy
+    label: 70 城新建商品住宅价格指数同比
+    unit: "%"
+    query: "最新中国70个大中城市新建商品住宅销售价格指数同比"
+    refresh_interval: 1d
+
+  - id: macro-cn-re-sales
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: 房地产
+    indicator_id: cn.re.sales_area.yoy
+    label: 商品房销售面积同比
+    unit: "%"
+    query: "最新中国商品房销售面积累计同比增速"
+    refresh_interval: 1d
+
+  - id: macro-cn-re-starts
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: 房地产
+    indicator_id: cn.re.starts.yoy
+    label: 房屋新开工面积同比
+    unit: "%"
+    query: "最新中国房屋新开工面积累计同比增速"
+    refresh_interval: 1d
+
+  - id: macro-cn-re-investment
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: 房地产
+    indicator_id: cn.re.investment.yoy
+    label: 房地产开发投资同比
+    unit: "%"
+    query: "最新中国房地产开发投资完成额累计同比"
+    refresh_interval: 1d
+
+  # —— 行业：能源 ——
+  - id: event-industry-energy
+    kind: event
+    enabled: true
+    dimension: industry
+    industry: 能源
+    query: "过去一周全球与中国能源油气电力重要事件"
+    refresh_interval: 1d
+
+  - id: macro-energy-brent
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: 能源
+    indicator_id: energy.brent
+    label: 布伦特原油现货价
+    unit: "USD/bbl"
+    query: "latest Brent crude oil spot price USD per barrel"
+    refresh_interval: 1d
+
+  - id: macro-energy-wti
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: 能源
+    indicator_id: energy.wti
+    label: WTI 原油现货价
+    unit: "USD/bbl"
+    query: "latest WTI crude oil spot price USD per barrel"
+    refresh_interval: 1d
+
+  - id: macro-energy-henry-hub
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: 能源
+    indicator_id: energy.henry_hub
+    label: 亨利港天然气价
+    unit: "USD/MMBtu"
+    query: "latest Henry Hub natural gas spot price USD per MMBtu"
+    refresh_interval: 1d
+
+  - id: macro-energy-cn-coal
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: 能源
+    indicator_id: energy.cn_thermal_coal
+    label: 秦皇岛动力煤参考价
+    unit: "CNY/t"
+    query: "最新秦皇岛港动力煤 Q5500 平仓价或 CCTD 参考价"
+    refresh_interval: 1d
+
+  - id: macro-energy-eu-ttf
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: 能源
+    indicator_id: energy.eu_ttf
+    label: 欧洲 TTF 天然气价
+    unit: "EUR/MWh"
+    query: "latest Dutch TTF natural gas futures or spot price EUR per MWh"
+    refresh_interval: 1d
+
+  # —— 行业：原材料 ——
+  - id: event-industry-materials
+    kind: event
+    enabled: true
+    dimension: industry
+    industry: 原材料
+    query: "过去一周大宗商品与工业原材料铜铝钢铁锂重要事件"
+    refresh_interval: 1d
+
+  - id: macro-mat-copper
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: 原材料
+    indicator_id: materials.lme_copper
+    label: LME 铜现货价
+    unit: "USD/t"
+    query: "latest LME copper spot price USD per tonne"
+    refresh_interval: 1d
+
+  - id: macro-mat-aluminum
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: 原材料
+    indicator_id: materials.lme_aluminum
+    label: LME 铝现货价
+    unit: "USD/t"
+    query: "latest LME aluminum spot price USD per tonne"
+    refresh_interval: 1d
+
+  - id: macro-mat-iron-ore
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: 原材料
+    indicator_id: materials.iron_ore_62
+    label: 铁矿石 62% 价格指数
+    unit: "USD/t"
+    query: "latest iron ore 62% Fe CFR China price index USD per tonne"
+    refresh_interval: 1d
+
+  - id: macro-mat-lithium
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: 原材料
+    indicator_id: materials.lithium_carbonate
+    label: 电池级碳酸锂现货价
+    unit: "CNY/t"
+    query: "最新中国电池级碳酸锂现货均价 元每吨"
+    refresh_interval: 1d
+
+  - id: macro-mat-rebar
+    kind: macro
+    enabled: true
+    scope: industry
+    industry: 原材料
+    indicator_id: materials.cn_rebar
+    label: 螺纹钢现货参考价
+    unit: "CNY/t"
+    query: "最新中国螺纹钢现货均价 元每吨"
+    refresh_interval: 1d

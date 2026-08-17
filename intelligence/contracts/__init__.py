@@ -76,3 +76,51 @@ class AskOut(BaseModel):
     answer: str
     citations: list[str] = Field(default_factory=list)
     model_meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class RetrieveEventsIn(BaseModel):
+    query_id: str
+    query: str
+    dimension: str
+    industry: Optional[str] = None
+    entity: Optional[str] = None
+
+
+class RetrievedEvent(BaseModel):
+    title: str
+    summary: str = ""
+    occurred_at: Optional[str] = None  # ISO8601
+    industry: Optional[str] = None
+    entity: Optional[str] = None
+    source_urls: list[str] = Field(default_factory=list)
+
+
+class RetrieveEventsOut(BaseModel):
+    events: list[RetrievedEvent] = Field(default_factory=list)
+    model_meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class RetrieveMacroIn(BaseModel):
+    query_id: str
+    query: str
+    scope: str
+    indicator_id: str
+    label: str = ""
+    unit: str = ""
+    industry: Optional[str] = None
+
+
+class RetrievedObservation(BaseModel):
+    value: Optional[float] = None
+    value_text: Optional[str] = None
+    observed_at: Optional[str] = None  # ISO8601
+    period_label: str = ""
+    source_urls: list[str] = Field(default_factory=list)
+
+
+class RetrieveMacroOut(BaseModel):
+    observations: list[RetrievedObservation] = Field(default_factory=list)
+    label: Optional[str] = None
+    unit: Optional[str] = None
+    description: Optional[str] = None
+    model_meta: dict[str, Any] = Field(default_factory=dict)

@@ -35,6 +35,39 @@ class DigestSource:
     path: Path
     enabled: bool = True
     refresh_interval: str = "1d"
+    tags: tuple[str, ...] = ()
+
+
+def _normalize_tags(raw: Any) -> tuple[str, ...]:
+    """解析标签：支持 YAML 列表，或逗号/中文逗号分隔字符串。"""
+    if raw is None:
+        return ()
+    parts: list[str] = []
+    if isinstance(raw, str):
+        parts = [p.strip() for p in raw.replace("，", ",").split(",")]
+    elif isinstance(raw, (list, tuple)):
+        for item in raw:
+            s = str(item or "").strip()
+            if not s:
+                continue
+            if "," in s or "，" in s:
+                parts.extend(p.strip() for p in s.replace("，", ",").split(","))
+            else:
+                parts.append(s)
+    else:
+        return ()
+    out: list[str] = []
+    seen: set[str] = set()
+    for p in parts:
+        if not p or p in seen:
+            continue
+        if len(p) > 32:
+            p = p[:32]
+        seen.add(p)
+        out.append(p)
+        if len(out) >= 20:
+            break
+    return tuple(out)
 
 
 @dataclass
@@ -122,6 +155,7 @@ def _dicts_to_sources(items: list[dict[str, Any]]) -> list[DigestSource]:
             item.get("refresh_interval"),
             stype="digest",
         )
+        tags = _normalize_tags(item.get("tags"))
         if not sid or not path_raw or sid in seen:
             continue
         seen.add(sid)
@@ -137,6 +171,7 @@ def _dicts_to_sources(items: list[dict[str, Any]]) -> list[DigestSource]:
                 path=p,
                 enabled=enabled,
                 refresh_interval=refresh,
+                tags=tags,
             )
         )
     return out
@@ -201,6 +236,7 @@ def vault_status() -> dict[str, Any]:
                 "readable": readable,
                 "refresh_interval": src.refresh_interval,
                 "refresh_label": refresh_interval_label(src.refresh_interval),
+                "tags": list(src.tags),
             }
         )
     any_ok = any(s["readable"] for s in sources)
@@ -425,6 +461,7 @@ def upsert_source(
     path: str,
     enabled: bool = True,
     refresh_interval: str | None = None,
+    tags: Any = None,
 ) -> dict[str, Any]:
     sid = _validate_source_id(source_id)
     label_s = (label or sid).strip()
@@ -437,9 +474,11 @@ def upsert_source(
     items = _read_raw_sources()
     found = False
     prev_refresh: str | None = None
+    prev_tags: tuple[str, ...] = ()
     for item in items:
         if str(item.get("id") or "").strip() == sid:
             prev_refresh = str(item.get("refresh_interval") or "") or None
+            prev_tags = _normalize_tags(item.get("tags"))
             item["label"] = label_s
             item["path"] = path_raw
             item["enabled"] = bool(enabled)
@@ -448,6 +487,8 @@ def upsert_source(
                 stype="digest",
                 fallback=prev_refresh,
             )
+            if tags is not None:
+                item["tags"] = list(_normalize_tags(tags))
             found = True
             break
     refresh = canonicalize_refresh_interval(
@@ -455,6 +496,7 @@ def upsert_source(
         stype="digest",
         fallback=prev_refresh,
     )
+    tag_list = list(_normalize_tags(tags)) if tags is not None else list(prev_tags)
     if not found:
         items.append(
             {
@@ -463,6 +505,7 @@ def upsert_source(
                 "path": path_raw,
                 "enabled": bool(enabled),
                 "refresh_interval": refresh,
+                "tags": tag_list,
             }
         )
 
@@ -474,11 +517,12 @@ def upsert_source(
         p = p.resolve()
     readable = bool(enabled) and p.is_dir()
     logger.info(
-        "digest_vault upsert id=%s enabled=%s readable=%s refresh=%s file=%s",
+        "digest_vault upsert id=%s enabled=%s readable=%s refresh=%s tags=%s file=%s",
         sid,
         enabled,
         readable,
         refresh,
+        tag_list,
         cfg,
     )
     return {
@@ -489,6 +533,7 @@ def upsert_source(
         "readable": readable,
         "refresh_interval": refresh,
         "refresh_label": refresh_interval_label(refresh),
+        "tags": tag_list,
     }
 
 
@@ -503,6 +548,7 @@ def set_source_enabled(source_id: str, enabled: bool) -> dict[str, Any]:
                 path=str(item.get("path") or ""),
                 enabled=bool(enabled),
                 refresh_interval=str(item.get("refresh_interval") or "") or None,
+                tags=item.get("tags"),
             )
     raise DigestVaultError(f"未知来源: {sid}", status_code=404)
 

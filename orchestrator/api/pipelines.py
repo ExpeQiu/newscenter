@@ -5,7 +5,7 @@ import logging
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from orchestrator.api.sources import run_enabled_sources
@@ -19,12 +19,28 @@ router = APIRouter(tags=["pipelines"])
 
 
 @router.post("/pipelines/{pipeline_id}/run")
-def run_pipeline(pipeline_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+def run_pipeline(
+    pipeline_id: str,
+    db: Session = Depends(get_db),
+    force: bool = Query(False),
+    kind: str = Query("all"),
+) -> dict[str, Any]:
     run_id = str(uuid4())
-    logger.info("pipeline_run id=%s run_id=%s cloud=%s", pipeline_id, run_id, is_cloud_runtime())
+    logger.info(
+        "pipeline_run id=%s run_id=%s cloud=%s force=%s kind=%s",
+        pipeline_id,
+        run_id,
+        is_cloud_runtime(),
+        force,
+        kind,
+    )
 
     if is_cloud_runtime():
-        row = enqueue(db, "pipeline.run", {"pipeline_id": pipeline_id, "run_id": run_id})
+        row = enqueue(
+            db,
+            "pipeline.run",
+            {"pipeline_id": pipeline_id, "run_id": run_id, "force": force, "kind": kind},
+        )
         db.commit()
         return {
             "pipeline_id": pipeline_id,
@@ -33,6 +49,14 @@ def run_pipeline(pipeline_id: str, db: Session = Depends(get_db)) -> dict[str, A
             "run_id": run_id,
             "message": "云端禁止外采写库；已入队由 Mac 执行",
         }
+
+    if pipeline_id == "insight":
+        from pipeline.insight_retrieve import run_insight_retrieve
+
+        k = (kind or "all").strip().lower()
+        if k not in ("event", "macro", "all"):
+            raise HTTPException(400, "kind must be event|macro|all")
+        return run_insight_retrieve(db, kind=k, force=force, run_id=run_id)  # type: ignore[arg-type]
 
     if pipeline_id == "sources":
         return run_enabled_sources(db, run_id)

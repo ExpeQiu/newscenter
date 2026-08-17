@@ -41,6 +41,7 @@ class Settings(BaseSettings):
 
     # 日报 HTML vault（相对仓库根或绝对路径；见 digest-sources.yml）
     digest_sources_file: str = "digest-sources.yml"
+    insight_queries_file: str = "insight-queries.yml"
 
     def resolved_minimax_api_key(self) -> str:
         return (self.minimax_coding_api_key or self.minimax_api_key or "").strip()

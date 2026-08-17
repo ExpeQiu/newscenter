@@ -1,0 +1,12 @@
+# 复制为 insight-queries.local.yml 覆盖/增补基线查询
+# deleted: true 可禁用基线中同 id 的查询
+queries:
+  - id: event-enterprise-nvidia
+    enabled: false
+
+  - id: event-china-policy
+    kind: event
+    enabled: true
+    dimension: china
+    query: "本周中国国务院与部委重要政策发布"
+    refresh_interval: 12h

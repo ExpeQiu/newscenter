@@ -171,6 +171,7 @@ export default function SubscribePage() {
     id: "",
     label: "",
     path: "",
+    tags: "",
     refresh_interval: DEFAULT_REFRESH.digest as string,
     editing: false,
   });
@@ -278,6 +279,7 @@ export default function SubscribePage() {
       id: "",
       label: "",
       path: "",
+      tags: "",
       refresh_interval: DEFAULT_REFRESH.digest,
       editing: false,
     });
@@ -288,6 +290,7 @@ export default function SubscribePage() {
       id: s.id,
       label: s.label,
       path: s.path,
+      tags: (s.tags || []).join(", "),
       refresh_interval: s.refresh_interval || DEFAULT_REFRESH.digest,
       editing: true,
     });
@@ -448,6 +451,11 @@ export default function SubscribePage() {
     const id = digestForm.id.trim();
     const path = digestForm.path.trim();
     if (!id || !path) return;
+    const tags = digestForm.tags
+      .replace(/，/g, ",")
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
     void run(digestForm.editing ? "更新日报路径" : "添加日报路径", async () => {
       await api.upsertVaultSource({
         id,
@@ -455,6 +463,7 @@ export default function SubscribePage() {
         path,
         enabled: true,
         refresh_interval: digestForm.refresh_interval,
+        tags,
       });
       resetDigestForm();
     });
@@ -605,7 +614,7 @@ export default function SubscribePage() {
             <Link href="/digest" className="text-[var(--accent)] underline-offset-2 hover:underline">
               日报
             </Link>{" "}
-            预览；更新周期控制定时 vault 入库是否扫描该目录（默认每天）。
+            预览；更新周期控制定时 vault 入库是否扫描该目录（默认每天）。可为来源定义标签，供日报页快捷筛选。
             {vault?.config_file ? (
               <span className="mt-1 block break-all text-xs">配置：{vault.config_file}</span>
             ) : null}
@@ -616,7 +625,9 @@ export default function SubscribePage() {
             <SourceRow
               key={s.id}
               title={s.label}
-              meta={`${s.id} · ${refreshLabel(s.refresh_interval || DEFAULT_REFRESH.digest)} · ${s.path}${s.readable ? "" : " · 目录不可读"}`}
+              meta={`${s.id} · ${refreshLabel(s.refresh_interval || DEFAULT_REFRESH.digest)}${
+                (s.tags || []).length ? ` · ${(s.tags || []).join(" / ")}` : ""
+              } · ${s.path}${s.readable ? "" : " · 目录不可读"}`}
               enabled={s.enabled}
               onEdit={() => editVault(s)}
               onToggle={() =>
@@ -662,6 +673,17 @@ export default function SubscribePage() {
                 placeholder="/path/to/html 或 daily"
                 value={digestForm.path}
                 onChange={(e) => setDigestForm((f) => ({ ...f, path: e.target.value }))}
+                disabled={busy}
+              />
+            </Field>
+          </div>
+          <div className="sm:col-span-2">
+            <Field label="标签定义">
+              <input
+                className={inputCls}
+                placeholder="AI, 技术（逗号分隔，用于日报页快捷筛选）"
+                value={digestForm.tags}
+                onChange={(e) => setDigestForm((f) => ({ ...f, tags: e.target.value }))}
                 disabled={busy}
               />
             </Field>

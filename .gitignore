@@ -2,6 +2,7 @@
 .env.cloud.local
 deploy/.env.pg
 digest-sources.local.yml
+insight-queries.local.yml
 vault-data/
 .venv/
 venv/

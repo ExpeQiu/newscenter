@@ -7,6 +7,7 @@
 ```bash
 newsc --format json pipeline run rss
 newsc --format json pipeline run sources   # 消费启用中的订阅源（按各源 refresh_interval 跳过未到期）
+newsc --format json pipeline run insight --force   # 事件 / 宏观检索入库（也可不加 --force，按查询周期）
 newsc --format json ai process --limit 50
 newsc --format json vault status
 ```
@@ -15,6 +16,10 @@ newsc --format json vault status
 
 1. `POST /pipelines/sources/run` — 网页 / RSS / 社媒 / 视频按源级周期采集  
 2. `POST /digests/vault/ingest` — 日报路径按源级周期入库（推库脚本用 `--force` 全量）
+
+建议另加日级任务（或与上述管道同脚本末尾调用）：
+
+3. `POST /pipelines/insight/run?force=false` — 按 `insight-queries.yml` 的 `refresh_interval` 检索事件与宏观数据
 
 `manual` 仅在创建/改源时触发重采，定时管道会跳过。
 
@@ -32,6 +37,7 @@ bash scripts/install-pipeline-sources-launchd.sh uninstall
 
 ```bash
 curl -s -X POST http://127.0.0.1:8787/pipelines/rss/run
+curl -s -X POST 'http://127.0.0.1:8787/pipelines/insight/run?force=true&kind=all'
 curl -s -X POST http://127.0.0.1:8787/ai/jobs/process -H 'Content-Type: application/json' -d '{"limit":50,"include_digest":true}'
 ```
 
@@ -41,7 +47,7 @@ curl -s -X POST http://127.0.0.1:8787/ai/jobs/process -H 'Content-Type: applicat
 
 在 `digest-sources.yml` 定义来源目录后，orchestrator 只读其中的 `.html`：
 
-仓库默认含 `local-demo → daily/`（verify 依赖）。本机个人目录写入 `digest-sources.local.yml`（gitignore），按 id 与基线合并。
+仓库默认含 `local-demo → daily/`（verify 依赖）。本机个人目录写入 `digest-sources.local.yml`（gitignore），按 id 与基线合并。可选 `tags` 字段（列表）用于「日报」页标签快捷筛选；在「订阅 → 日报获取路径」可编辑。
 
 ```bash
 newsc --format json vault status

@@ -18,6 +18,12 @@ from intelligence.contracts import (
     RecommendIn,
     RecommendItem,
     RecommendOut,
+    RetrieveEventsIn,
+    RetrieveEventsOut,
+    RetrievedEvent,
+    RetrievedObservation,
+    RetrieveMacroIn,
+    RetrieveMacroOut,
     SummarizeIn,
     SummarizeOut,
 )
@@ -329,6 +335,161 @@ class MinimaxProvider:
         except Exception as exc:  # noqa: BLE001
             self._on_fallback("ask", exc)
             out = self._fallback.ask(payload)
+            out.model_meta = {**out.model_meta, "fallback": True, "wanted": self.name, "error": str(exc)[:200]}
+            return out
+
+    def retrieve_events(self, payload: RetrieveEventsIn) -> RetrieveEventsOut:
+        self.call_count += 1
+        from datetime import date
+
+        today = date.today().isoformat()
+        system = (
+            "你是时事事件检索助手，基于公开常识与近期可核实信息整理事件。只输出 JSON："
+            '{"events":[{"title":"...","summary":"...","occurred_at":"ISO8601",'
+            '"industry":null,"entity":null,"source_urls":["https://..."]}]}\n'
+            "要求：\n"
+            "1. 必须返回 3-5 条与查询相关的重要事件，按时间新到旧；\n"
+            "2. 标题具体、摘要 1-3 句中文；occurred_at 尽量准确，未知则给当月近似日期；\n"
+            "3. source_urls 可给权威媒体/官网链接，没有则用空数组；\n"
+            "4. 禁止返回空 events；禁止编造离谱谣言，可用公开已知进展与政策。\n"
+            f"今天是 {today}。"
+        )
+        user = (
+            f"query_id={payload.query_id}\n"
+            f"dimension={payload.dimension}\n"
+            f"industry={payload.industry or ''}\n"
+            f"entity={payload.entity or ''}\n"
+            f"query={payload.query}\n"
+            "请列出过去 7-14 天（或最近可得）最重要的相关事件。"
+        )
+        try:
+            content, meta = self._chat(system=system, user=user, max_tokens=2200, temperature=0.35)
+            data = extract_json(content)
+            rows = data.get("events") if isinstance(data, dict) else None
+            if not isinstance(rows, list):
+                raise RuntimeError("invalid retrieve_events json")
+            events: list[RetrievedEvent] = []
+            for row in rows[:5]:
+                if not isinstance(row, dict) or not row.get("title"):
+                    continue
+                urls = row.get("source_urls") or []
+                if not isinstance(urls, list):
+                    urls = []
+                events.append(
+                    RetrievedEvent(
+                        title=str(row["title"]).strip()[:300],
+                        summary=str(row.get("summary") or "").strip()[:800],
+                        occurred_at=str(row["occurred_at"]).strip() if row.get("occurred_at") else None,
+                        industry=str(row["industry"]).strip() if row.get("industry") else payload.industry,
+                        entity=str(row["entity"]).strip() if row.get("entity") else payload.entity,
+                        source_urls=[str(u).strip() for u in urls if str(u).strip()][:5],
+                    )
+                )
+            if not events:
+                # 二次加强调用，避免模型过度拒答
+                content2, meta2 = self._chat(
+                    system=system + "\n若不确定精确日期，仍须给出 3 条最相关事件。",
+                    user=user + "\n务必输出非空 events。",
+                    max_tokens=2200,
+                    temperature=0.45,
+                )
+                data2 = extract_json(content2)
+                rows2 = data2.get("events") if isinstance(data2, dict) else None
+                if isinstance(rows2, list):
+                    for row in rows2[:5]:
+                        if not isinstance(row, dict) or not row.get("title"):
+                            continue
+                        urls = row.get("source_urls") or []
+                        if not isinstance(urls, list):
+                            urls = []
+                        events.append(
+                            RetrievedEvent(
+                                title=str(row["title"]).strip()[:300],
+                                summary=str(row.get("summary") or "").strip()[:800],
+                                occurred_at=str(row["occurred_at"]).strip() if row.get("occurred_at") else None,
+                                industry=str(row["industry"]).strip() if row.get("industry") else payload.industry,
+                                entity=str(row["entity"]).strip() if row.get("entity") else payload.entity,
+                                source_urls=[str(u).strip() for u in urls if str(u).strip()][:5],
+                            )
+                        )
+                meta = {**meta, "retry": True, **{k: v for k, v in meta2.items() if k != "provider"}}
+            if not events:
+                raise RuntimeError("empty events after retry")
+            return RetrieveEventsOut(events=events, model_meta={**meta, "query_id": payload.query_id})
+        except Exception as exc:  # noqa: BLE001
+            self._on_fallback("retrieve_events", exc)
+            out = self._fallback.retrieve_events(payload)
+            out.model_meta = {**out.model_meta, "fallback": True, "wanted": self.name, "error": str(exc)[:200]}
+            return out
+
+    def retrieve_macro(self, payload: RetrieveMacroIn) -> RetrieveMacroOut:
+        self.call_count += 1
+        from datetime import date
+
+        today = date.today().isoformat()
+        system = (
+            "你是宏观/行业数据检索助手。只输出 JSON："
+            '{"label":"...","unit":"...","description":"...","observations":['
+            '{"value":0.0,"value_text":"...","observed_at":"ISO8601","period_label":"2026-Q2",'
+            '"source_urls":["https://..."]}]}\n'
+            "要求：\n"
+            "1. 给出该指标最新可得的 1-3 个观测点（含上一期便于对比）；\n"
+            "2. value 为数值，period_label 如 2026-07 / 2026-Q2；\n"
+            "3. 禁止空 observations；不确定时给出公开可得的最近官方/市场共识近似值，并在 description 注明「近似」。\n"
+            f"今天是 {today}。"
+        )
+        user = (
+            f"query_id={payload.query_id}\n"
+            f"scope={payload.scope}\n"
+            f"indicator_id={payload.indicator_id}\n"
+            f"label={payload.label}\n"
+            f"unit={payload.unit}\n"
+            f"industry={payload.industry or ''}\n"
+            f"query={payload.query}"
+        )
+        try:
+            content, meta = self._chat(system=system, user=user, max_tokens=1400, temperature=0.25)
+            data = extract_json(content)
+            if not isinstance(data, dict):
+                raise RuntimeError("invalid retrieve_macro json")
+            rows = data.get("observations") or []
+            if not isinstance(rows, list):
+                raise RuntimeError("invalid observations")
+            obs: list[RetrievedObservation] = []
+            for row in rows[:5]:
+                if not isinstance(row, dict):
+                    continue
+                urls = row.get("source_urls") or []
+                if not isinstance(urls, list):
+                    urls = []
+                val = row.get("value")
+                try:
+                    val_f = float(val) if val is not None else None
+                except (TypeError, ValueError):
+                    val_f = None
+                if val_f is None and not row.get("value_text"):
+                    continue
+                obs.append(
+                    RetrievedObservation(
+                        value=val_f,
+                        value_text=str(row["value_text"]).strip() if row.get("value_text") else None,
+                        observed_at=str(row["observed_at"]).strip() if row.get("observed_at") else None,
+                        period_label=str(row.get("period_label") or "").strip()[:64],
+                        source_urls=[str(u).strip() for u in urls if str(u).strip()][:5],
+                    )
+                )
+            if not obs:
+                raise RuntimeError("empty observations")
+            return RetrieveMacroOut(
+                observations=obs,
+                label=str(data.get("label") or payload.label or payload.indicator_id),
+                unit=str(data.get("unit") if data.get("unit") is not None else payload.unit),
+                description=str(data["description"]).strip() if data.get("description") else None,
+                model_meta={**meta, "query_id": payload.query_id},
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._on_fallback("retrieve_macro", exc)
+            out = self._fallback.retrieve_macro(payload)
             out.model_meta = {**out.model_meta, "fallback": True, "wanted": self.name, "error": str(exc)[:200]}
             return out
 

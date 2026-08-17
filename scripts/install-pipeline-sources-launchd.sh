@@ -45,6 +45,14 @@ vcode=\$(curl -sS -o /tmp/newsc-vault-ingest.json -w '%{http_code}' \\
   --connect-timeout 5 --max-time 300 || echo 000)
 echo "[\$(stamp)] vault http=\$vcode \$(head -c 400 /tmp/newsc-vault-ingest.json 2>/dev/null)" >>"\$LOG"
 [[ "\$vcode" == "200" ]] || exit 1
+echo "[\$(stamp)] insight retrieve" >>"\$LOG"
+icode=\$(curl -sS -o /tmp/newsc-insight.json -w '%{http_code}' \\
+  -X POST "\${API}/pipelines/insight/run?force=false&kind=all" \\
+  -H 'Content-Type: application/json' \\
+  --connect-timeout 5 --max-time 600 || echo 000)
+echo "[\$(stamp)] insight http=\$icode \$(head -c 400 /tmp/newsc-insight.json 2>/dev/null)" >>"\$LOG"
+# insight 失败不阻断采集主链
+true
 EOF
 chmod +x "${WRAPPER}"
 

@@ -4,8 +4,20 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-cd "$ROOT"
-LOG_DIR="$ROOT/logs"
+# launchd 包装器会设 NEWSC_ROOT，避免从 Application Support 副本反推错仓库根
+ROOT="${NEWSC_ROOT:-$ROOT}"
+export NEWSC_ROOT="$ROOT"
+cd "$ROOT" || {
+  echo "[push-db] cd ROOT failed (iCloud/TCC?): $ROOT" >&2
+  exit 1
+}
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# 从 Application Support 副本跑时，日志勿写 iCloud（launchd TCC）
+if [[ "$SCRIPT_DIR" == *"/Application Support/newsc/"* ]]; then
+  LOG_DIR="${HOME}/Library/Application Support/newsc/logs"
+else
+  LOG_DIR="$ROOT/logs"
+fi
 mkdir -p "$LOG_DIR"
 LOG="$LOG_DIR/push-db-to-cloud.log"
 STAMP="$(date '+%Y%m%d-%H%M%S')"
@@ -21,10 +33,23 @@ normalize_pg_url() {
   printf '%s' "$1" | sed 's|^postgresql+psycopg://|postgresql://|'
 }
 
+# 优先 Application Support 副本（launchd 无法 source iCloud 下的 .env）
+APP_ENV="${HOME}/Library/Application Support/newsc/.env.cloud.local"
 # shellcheck disable=SC1091
-[[ -f "$ROOT/.env.cloud.local" ]] && set -a && source "$ROOT/.env.cloud.local" && set +a
+if [[ -f "$APP_ENV" ]]; then
+  set -a && source "$APP_ENV" && set +a
+elif [[ -r "$ROOT/.env.cloud.local" ]]; then
+  set -a && source "$ROOT/.env.cloud.local" && set +a
+fi
+# 本机 .env 仅交互式有用；launchd 读 iCloud 会被 TCC 拒绝，必须忽略失败
 # shellcheck disable=SC1091
-[[ -f "$ROOT/.env" ]] && set -a && source "$ROOT/.env" && set +a
+if [[ -r "$ROOT/.env" ]]; then
+  set +e
+  set -a
+  source "$ROOT/.env" 2>/dev/null
+  set +a
+  set -e
+fi
 
 RAW_LOCAL="${LOCAL_DATABASE_URL:-${DATABASE_URL:-postgresql://qiubin@/newsc?host=/tmp}}"
 LOCAL_URL="$(normalize_pg_url "$RAW_LOCAL")"
@@ -48,7 +73,7 @@ if ! pg_isready -h /tmp >/dev/null 2>&1 && ! pg_isready -h 127.0.0.1 -p 5432 >/d
 fi
 
 log "▶ 确保隧道 :${LOCAL_PORT}"
-bash "$ROOT/scripts/deploy/db-tunnel.sh" -d
+bash "$SCRIPT_DIR/db-tunnel.sh" -d
 # 等待隧道真正可连（避免刚拉起即 psql 被拒）
 for i in 1 2 3 4 5 6 7 8 9 10; do
   if pg_isready -h 127.0.0.1 -p "$LOCAL_PORT" >/dev/null 2>&1; then
@@ -106,7 +131,7 @@ pg_dump -Fp --no-owner --no-acl --clean --if-exists \
   --exclude-table=cloud_outbox \
   --exclude-table=control_settings \
   "$LOCAL_URL" -f "$DUMP"
-python3 "$ROOT/scripts/deploy/strip-pg18-dump.py" "$DUMP" "$STRIPPED"
+python3 "$SCRIPT_DIR/strip-pg18-dump.py" "$DUMP" "$STRIPPED"
 log "✓ dump $(wc -c <"$STRIPPED" | tr -d ' ') bytes"
 
 if [[ "$DRY" -eq 1 ]]; then
@@ -145,14 +170,14 @@ log "▶ 对账"
 export LOCAL_URL CLOUD_URL
 PY="${ROOT}/.venv/bin/python"
 [[ -x "$PY" ]] || PY=python3
-if ! "$PY" "$ROOT/scripts/deploy/compare-db-counts.py"; then
+if ! "$PY" "$SCRIPT_DIR/compare-db-counts.py"; then
   log "⚠ 对账不一致（详见上方）"
 fi
 
 # 可选：仍同步文件系统副本（默认关闭，云端读 DB）
 if [[ "${SYNC_VAULT_FILES:-0}" == "1" ]]; then
   log "▶ vault 文件 rsync（SYNC_VAULT_FILES=1）"
-  bash "$ROOT/scripts/deploy/sync-vault-to-cloud.sh"
+  bash "$SCRIPT_DIR/sync-vault-to-cloud.sh"
 else
   log "↷ 跳过 vault 文件 rsync（日报已入库，随 pg_dump 上云）"
 fi
